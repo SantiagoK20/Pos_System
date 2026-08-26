@@ -37,6 +37,14 @@ function TopBar({ role, view, onNavigate, onLogout }) {
                         >
                             Manage Menu
                         </button>
+
+                        <button
+                            className={`topbar-btn ${view === 'manageCashiers' ? 'active' : ''
+                                }`}
+                            onClick={() => onNavigate('manageCashiers')}
+                        >
+                            Manage Cashiers
+                        </button>
                     </>
                 )}
 

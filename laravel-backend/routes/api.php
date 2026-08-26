@@ -221,3 +221,208 @@ Route::delete('/sales', function () {
         'message' => 'All sales data cleared successfully.',
     ]);
 });
+
+// =====================================================
+// CREATE CASHIER ACCOUNT - ADMIN ONLY
+// =====================================================
+
+Route::post('/cashiers', function (Request $request) {
+
+    // -------------------------------------------------
+    // Get Firebase ID token
+    // -------------------------------------------------
+
+    $authorization = $request->header('Authorization');
+
+    if (
+        !$authorization ||
+        !str_starts_with($authorization, 'Bearer ')
+    ) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Authentication required.',
+        ], 401);
+    }
+
+    $idToken = substr($authorization, 7);
+
+
+    // -------------------------------------------------
+    // Verify Admin Firebase account
+    // -------------------------------------------------
+
+    try {
+
+        $auth = app('firebase.auth');
+
+        $verifiedToken =
+            $auth->verifyIdToken($idToken);
+
+        $uid =
+            $verifiedToken->claims()->get('sub');
+
+        $adminUser =
+            $auth->getUser($uid);
+
+        $adminEmail =
+            strtolower($adminUser->email ?? '');
+
+        $allowedAdminEmail =
+            strtolower(env('ADMIN_EMAIL', ''));
+
+        // Make sure the logged-in user
+        // is your designated Admin.
+
+        if (
+            !$allowedAdminEmail ||
+            $adminEmail !== $allowedAdminEmail
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'Administrator access required.',
+            ], 403);
+        }
+
+    } catch (\Throwable $e) {
+
+        \Log::warning(
+            'Invalid Firebase Admin authentication.',
+            [
+                'error' => $e->getMessage(),
+            ]
+        );
+
+        return response()->json([
+            'success' => false,
+            'message' =>
+                'Invalid or expired authentication.',
+        ], 401);
+    }
+
+
+    // -------------------------------------------------
+    // Validate cashier information
+    // -------------------------------------------------
+
+    $data = $request->validate([
+        'cashierId' =>
+            'required|string|min:1|max:50',
+
+        'password' =>
+            'required|string|min:6',
+    ]);
+
+
+    $cashierId =
+        strtoupper(trim($data['cashierId']));
+
+    $password =
+        $data['password'];
+
+
+    // -------------------------------------------------
+    // Create internal Firebase email
+    // -------------------------------------------------
+
+    // The cashier will only use the Cashier ID.
+    //
+    // Example:
+    //
+    // C001
+    // ↓
+    // c001@atecles-pos.local
+
+    $email =
+        strtolower($cashierId) .
+        '@atecles-pos.local';
+
+
+    // -------------------------------------------------
+    // Create Firebase Authentication account
+    // -------------------------------------------------
+
+    try {
+
+        $auth = app('firebase.auth');
+
+
+        // Check whether the Cashier ID already exists.
+
+        try {
+
+            $auth->getUserByEmail($email);
+
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'This Cashier ID already exists.',
+            ], 409);
+
+        } catch (
+            \Kreait\Firebase\Exception\Auth\UserNotFound $e
+        ) {
+
+            // User doesn't exist.
+            // Continue creating the account.
+
+        }
+
+
+        // -------------------------------------------------
+        // Create Firebase user
+        // -------------------------------------------------
+
+        $user = $auth->createUser([
+            'email' => $email,
+            'password' => $password,
+        ]);
+
+
+        // -------------------------------------------------
+        // Save cashier information in Firebase Database
+        // -------------------------------------------------
+
+        app('firebase.database')
+            ->getReference(
+                "cashiers/{$cashierId}"
+            )
+            ->set([
+                'cashierId' => $cashierId,
+                'uid' => $user->uid,
+                'role' => 'cashier',
+            ]);
+
+
+        // -------------------------------------------------
+        // Return success
+        // -------------------------------------------------
+
+        return response()->json([
+            'success' => true,
+
+            'message' =>
+                'Cashier account created successfully.',
+
+            'data' => [
+                'cashierId' => $cashierId,
+                'uid' => $user->uid,
+            ],
+        ]);
+
+    } catch (\Throwable $e) {
+
+        \Log::error(
+            'Cashier account creation failed.',
+            [
+                'error' => $e->getMessage(),
+            ]
+        );
+
+        return response()->json([
+            'success' => false,
+            'message' =>
+                'Failed to create cashier account.',
+        ], 500);
+    }
+});

@@ -31,18 +31,16 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  #root {
+    width: 1126px;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+    border-inline: 1px solid var(--border);
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
   }
 
   #social .button-icon {
@@ -66,31 +64,25 @@ body {
   box-sizing: border-box;
 }
 
-h1,
-h2 {
+.dashboard-page h1,
+.dashboard-page h2 {
   font-family: var(--heading);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-h);
+  letter-spacing: normal;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+.dashboard-page h1 {
+  font-size: 28px;
+  margin: 0 0 4px;
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+
+.dashboard-page h2 {
+  font-size: 18px;
+  line-height: 130%;
+  margin: 0 0 12px;
 }
+
 p {
   margin: 0;
 }
@@ -108,4 +100,126 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+.category-tab {
+  width: 140px;
+  height: 70px;
+  border: none;
+  border-radius: 0;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.category-tab:hover {
+  opacity: 0.9;
+}
+
+.category-tab.active {
+  outline: 3px solid white;
+  outline-offset: -3px;
+}
+
+/* =====================================================
+   POS FIXED SCALE
+   ===================================================== */
+
+.pos-screen {
+  width: 100%;
+  min-width: 1200px;
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+
+/* =====================================================
+   POS CATEGORY BUTTONS
+   Does not affect Dashboard or Manage Menu
+   ===================================================== */
+
+.category-tabs {
+  width: 190px;
+  min-width: 190px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.category-tab {
+  width: 190px;
+  min-width: 190px;
+  min-height: 110px;
+
+  padding: 0 12px;
+  box-sizing: border-box;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  white-space: nowrap;
+  overflow: visible;
+
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Make the long REFRESHMENTS text slightly smaller */
+.category-tab:nth-child(6) {
+  font-size: 13px;
+}
+
+
+/* Make long category names fit */
+.category-tab:nth-child(6) {
+  font-size: 13px;
+}
+
+/* =====================================================
+   DASHBOARD DATE PICKER
+   ===================================================== */
+
+.dashboard-date-input {
+  margin-top: 10px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: var(--sans);
+  font-weight: 500;
+  color: #2d3a2e;
+  background-color: #f4faf5;
+  border: 1.5px solid #a8d5a2;
+  border-left: 4px solid #3a7d44;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  display: block;
+}
+
+.dashboard-date-input:hover {
+  border-color: #3a7d44;
+  background-color: #eaf6ec;
+}
+
+.dashboard-date-input:focus {
+  border-color: #3a7d44;
+  box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.15);
+  background-color: #eaf6ec;
+}
+
+.dashboard-date-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1;
+  filter: invert(35%) sepia(60%) saturate(500%) hue-rotate(100deg) brightness(80%);
+  width: 16px;
+  height: 16px;
+  padding-left: 6px;
 }

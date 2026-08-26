@@ -6,6 +6,7 @@ import TopBar from './components/TopBar'
 import POSScreen from './components/POSScreen'
 import Dashboard from './components/Dashboard'
 import ManageMenu from './components/ManageMenu'
+import ManageCashiers from './components/ManageCashiers'
 
 const API_URL = '/api/menu'
 const SALES_API_URL = '/api/sales'
@@ -487,6 +488,11 @@ function App() {
           onEdit={editMenuItem}
           onDelete={deleteMenuItem}
         />
+      )}
+
+      {/* MANAGE CASHIERS */}
+      {view === 'manageCashiers' && (
+        <ManageCashiers />
       )}
 
       {/* POS */}
