@@ -25,6 +25,10 @@ function Receipt({ sale, onClose }) {
                             <strong>Transaction:</strong> {sale.id}
                         </p>
                         <p>
+                            <strong>Order Type:</strong>{' '}
+                            {sale.orderType === 'take_out' ? 'TAKE OUT' : 'DINE IN'}
+                        </p>
+                        <p>
                             <strong>Date:</strong>{' '}
                             {receiptDate.toLocaleDateString()}
                         </p>

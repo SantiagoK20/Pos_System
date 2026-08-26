@@ -144,6 +144,7 @@ Route::post('/sales', function (Request $request) {
         'subtotal' => 'required|numeric',
         'total' => 'required|numeric',
         'paymentMethod' => 'required|string',
+        'orderType' => 'required|string',
 
         'date' => 'nullable|string',
         'discount' => 'nullable',
@@ -174,6 +175,7 @@ Route::post('/sales', function (Request $request) {
         'total' => (float) $data['total'],
 
         'paymentMethod' => $data['paymentMethod'],
+        'orderType' => $data['orderType'],
 
         'tendered' => isset($data['tendered'])
             ? (float) $data['tendered']

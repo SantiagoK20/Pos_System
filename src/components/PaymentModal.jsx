@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 function PaymentModal({ total, onCancel, onConfirm }) {
     const [method, setMethod] = useState('cash')
+    const [orderType, setOrderType] = useState('dine_in')
     const [amountStr, setAmountStr] = useState('')
 
     const tendered = parseFloat(amountStr) || 0
@@ -36,9 +37,9 @@ function PaymentModal({ total, onCancel, onConfirm }) {
                 alert('Amount received is less than the total.')
                 return
             }
-            onConfirm({ method: 'cash', tendered, change })
+            onConfirm({ method: 'cash', tendered, change, orderType })
         } else {
-            onConfirm({ method: 'ewallet', tendered: total, change: 0 })
+            onConfirm({ method: 'ewallet', tendered: total, change: 0, orderType })
         }
     }
 
@@ -57,6 +58,23 @@ function PaymentModal({ total, onCancel, onConfirm }) {
                 <div className="modal-body">
                     <p className="modal-label">TOTAL DUE</p>
                     <p className="payment-total">₱{total.toFixed(2)}</p>
+
+                    <div className="payment-method-tabs" style={{ marginBottom: '12px' }}>
+                        <button
+                            className={`payment-tab ${orderType === 'dine_in' ? 'active' : ''}`}
+                            onClick={() => setOrderType('dine_in')}
+                            style={{ background: orderType === 'dine_in' ? '#1b7a3d' : '#f0f0f0', color: orderType === 'dine_in' ? 'white' : '#333' }}
+                        >
+                            🍽️ Dine In
+                        </button>
+                        <button
+                            className={`payment-tab ${orderType === 'take_out' ? 'active' : ''}`}
+                            onClick={() => setOrderType('take_out')}
+                            style={{ background: orderType === 'take_out' ? '#f5a300' : '#f0f0f0', color: orderType === 'take_out' ? 'white' : '#333' }}
+                        >
+                            🛍️ Take Out
+                        </button>
+                    </div>
 
                     <div className="payment-method-tabs">
                         <button

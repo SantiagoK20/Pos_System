@@ -113,7 +113,7 @@ function POSScreen({ menuItems, onCompleteSale }) {
         setShowPayment(true)
     }
 
-    function handlePaymentConfirm({ method, tendered, change }) {
+    function handlePaymentConfirm({ method, tendered, change, orderType }) {
         const sale = {
             id: Date.now(),
             date: new Date().toISOString(),
@@ -130,6 +130,7 @@ function POSScreen({ menuItems, onCompleteSale }) {
             vat,
             total,
             paymentMethod: method,
+            orderType: orderType,
             tendered,
             change,
         }
