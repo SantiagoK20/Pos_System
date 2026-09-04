@@ -3,12 +3,14 @@ import { CATEGORIES, TAX_RATE } from '../data/menuData'
 import QuantityModal from './QuantityModal'
 import PaymentModal from './PaymentModal'
 import Receipt from './Receipt'
+import BufferPrintModal from './BufferPrintModal'
 
 function POSScreen({ menuItems, onCompleteSale }) {
     const [activeCategory, setActiveCategory] = useState('SHORT ORDER')
     const [cart, setCart] = useState([])
     const [modalItem, setModalItem] = useState(null)
     const [showPayment, setShowPayment] = useState(false)
+    const [showBufferPrint, setShowBufferPrint] = useState(false)
     const [completedSale, setCompletedSale] = useState(null)
 
     // Numpad input (used for discounts)
@@ -242,7 +244,18 @@ function POSScreen({ menuItems, onCompleteSale }) {
                 </div>
 
                 <div className="action-row">
-                    <button className="action-btn buffer">BUFFER PRINT</button>
+                    <button 
+                        className="action-btn buffer"
+                        onClick={() => {
+                            if (cart.length === 0) {
+                                alert('No items in the order to print!')
+                                return
+                            }
+                            setShowBufferPrint(true)
+                        }}
+                    >
+                        BUFFER PRINT
+                    </button>
                     <button className="action-btn">PAID OUT</button>
                     <button className="action-btn">CASH IN</button>
                     <button className="action-btn" onClick={applyAmountDiscount}>AMOUNT DISC.</button>
@@ -296,6 +309,13 @@ function POSScreen({ menuItems, onCompleteSale }) {
                     total={total}
                     onCancel={() => setShowPayment(false)}
                     onConfirm={handlePaymentConfirm}
+                />
+            )}
+
+            {showBufferPrint && (
+                <BufferPrintModal
+                    cart={cart}
+                    onClose={() => setShowBufferPrint(false)}
                 />
             )}
 
