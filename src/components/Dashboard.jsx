@@ -1,5 +1,15 @@
 import { useState } from 'react'
 import { CATEGORIES } from '../data/menuData'
+import {
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+    Cell,
+} from 'recharts'
 
 function Dashboard({ menuItems, salesLog, onResetSales }) {
 
@@ -271,119 +281,124 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                 TOP SELLING ITEMS
             ================================================= */}
 
-            {topItems.length > 0 && (
+            <div
+                className="dashboard-breakdown"
+                style={{ marginBottom: 20 }}
+            >
 
-                <div
-                    className="dashboard-breakdown"
-                    style={{ marginBottom: 20 }}
-                >
+                <h2>
+                    Top Selling Items Analytics
+                </h2>
 
-                    <h2>
-                        Top Selling Items
-                    </h2>
-
-                    <table className="manage-menu-table">
-
-                        <thead>
-
-                            <tr>
-                                <th>#</th>
-                                <th>ITEM NAME</th>
-                                <th>CATEGORY</th>
-                                <th>QTY SOLD</th>
-                                <th>REVENUE</th>
-                            </tr>
-
-                        </thead>
-
-                        <tbody>
-
-                            {topItems.map((item, idx) => (
-
-                                <tr key={item.name}>
-
-                                    <td>
-                                        {idx + 1}
-                                    </td>
-
-                                    <td>
-                                        {item.name}
-                                    </td>
-
-                                    <td>
-
-                                        <span className="category-pill">
-                                            {item.category}
-                                        </span>
-
-                                    </td>
-
-                                    <td>
-                                        {item.qty}
-                                    </td>
-
-                                    <td>
-                                        ₱{item.revenue.toFixed(2)}
-                                    </td>
-
-                                </tr>
-
-                            ))}
-
-                        </tbody>
-
-                    </table>
-
+                <div style={{ width: '100%', height: 350, marginTop: 10 }}>
+                    {topItems.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={topItems}
+                                layout="vertical"
+                                margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} horizontal={true} vertical={true} />
+                                <XAxis type="number" tickFormatter={(value) => `₱${value}`} />
+                                <YAxis 
+                                    dataKey="name" 
+                                    type="category" 
+                                    width={120} 
+                                    tick={{ fontSize: 13, fill: '#666', fontWeight: 600 }} 
+                                    axisLine={false}
+                                    tickLine={false}
+                                />
+                                <Tooltip 
+                                    cursor={false}
+                                    isAnimationActive={false}
+                                    contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                    formatter={(value, name, props) => [
+                                        `₱${Number(value).toFixed(2)} (${props.payload.qty} sold)`, 
+                                        'Revenue'
+                                    ]}
+                                />
+                                <Bar 
+                                    dataKey="revenue" 
+                                    radius={[0, 4, 4, 0]} 
+                                    barSize={24}
+                                    fill="#f5a300"
+                                    animationDuration={1000}
+                                    activeBar={false}
+                                >
+                                    {
+                                        topItems.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={['#f5a300', '#1b7a3d', '#2ecc71', '#29a8e0', '#e5484d', '#aa3bff', '#ff4d4f', '#faad14'][index % 8]} />
+                                        ))
+                                    }
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div style={{ 
+                            height: '100%', 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            color: '#888',
+                            background: '#fafafa',
+                            borderRadius: '8px',
+                            border: '1px dashed #d9d9d9',
+                            gap: '8px'
+                        }}>
+                            <span style={{ fontSize: '2em', opacity: 0.6 }}>📊</span>
+                            <span style={{ fontSize: '0.95em', fontWeight: 600, color: '#777' }}>No sales data available for this date</span>
+                        </div>
+                    )}
                 </div>
 
-            )}
+            </div>
 
 
             {/* =================================================
-                MENU ITEMS PER CATEGORY
+                MENU CATEGORIES
             ================================================= */}
 
             <div className="dashboard-breakdown">
 
                 <h2>
-                    Menu Items per Category
+                    Menu Categories
                 </h2>
 
-                {categoryCounts.map((cat) => (
-
-                    <div
-                        key={cat.key}
-                        className="dash-bar-row"
-                    >
-
-                        <span className="dash-bar-label">
-                            {cat.key}
-                        </span>
-
-                        <div className="dash-bar-track">
-
-                            <div
-                                className="dash-bar-fill"
-                                style={{
-                                    width: `${menuItems.length
-                                        ? (cat.count /
-                                            menuItems.length) *
-                                        100
-                                        : 0
-                                        }%`,
-                                    background: cat.color,
-                                }}
-                            />
-
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px', marginTop: '20px' }}>
+                    {categoryCounts.map((cat) => (
+                        <div 
+                            key={cat.key} 
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'space-between',
+                                background: 'white', 
+                                border: '1px solid #eaeaea',
+                                borderLeft: `6px solid ${cat.color}`,
+                                borderRadius: '8px',
+                                padding: '16px 20px',
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                                transition: 'box-shadow 0.2s ease',
+                                cursor: 'default'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)'}
+                            onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.03)'}
+                        >
+                            <span style={{ fontWeight: 700, fontSize: '0.95em', color: '#444' }}>
+                                {cat.key}
+                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                <span style={{ fontSize: '1.6em', fontWeight: 800, color: '#222', lineHeight: 1 }}>
+                                    {cat.count}
+                                </span>
+                                <span style={{ fontSize: '0.7em', fontWeight: 600, color: '#aaa', textTransform: 'uppercase', marginTop: '4px' }}>
+                                    Items
+                                </span>
+                            </div>
                         </div>
-
-                        <span className="dash-bar-count">
-                            {cat.count}
-                        </span>
-
-                    </div>
-
-                ))}
+                    ))}
+                </div>
 
             </div>
 
