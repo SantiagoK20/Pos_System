@@ -769,10 +769,17 @@ body,
   color: #555;
 }
 
-.manage-menu-toolbar select {
+.manage-menu-toolbar select,
+.manage-menu-search {
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #ccc;
+  font-size: 0.9em;
+}
+
+.manage-menu-search {
+  min-width: 170px;
+  max-width: 220px;
 }
 
 .add-item-btn {
@@ -908,17 +915,17 @@ body,
 }
 
 .fade-in {
-  animation: fadeIn 0.25s ease;
+  animation: none;
 }
 
 .dashboard-page,
 .manage-menu-page,
 .pos-page {
-  animation: fadeIn 0.25s ease;
+  animation: none;
 }
 
 .modal-box {
-  animation: modalPop 0.18s ease;
+  animation: none;
 }
 
 .menu-item,
@@ -933,11 +940,11 @@ body,
 .modal-confirm,
 .modal-cancel,
 .reset-sales-btn {
-  transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
+  transition: none;
 }
 
 .menu-item:hover {
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .menu-item:active,
@@ -945,17 +952,17 @@ body,
 .key:active,
 .topbar-btn:active,
 .add-item-btn:active {
-  transform: scale(0.96);
+  transform: none;
 }
 
 .topbar-btn:hover:not(.active) {
-  filter: brightness(1.15);
+  filter: none;
 }
 
 .dash-card,
 .manage-menu-table-wrap,
 .dashboard-breakdown {
-  animation: fadeIn 0.3s ease;
+  animation: none;
 }
 
 .dash-bar-fill {
@@ -1595,12 +1602,28 @@ body,
 
 /* =========================================================
    POS RESPONSIVE DESIGN
-   POS ONLY - ADMIN IS NOT AFFECTED
+   POS ONLY
+   ADMIN/DASHBOARD IS NOT AFFECTED
    ========================================================= */
 
-/* ---------------------------------------------------------
+/* =========================================================
+   MAKE POS USE THE AVAILABLE SCREEN
+   Only applies when POS is displayed
+   ========================================================= */
+
+#root:has(.pos-page) {
+  width: 100vw;
+  max-width: 100vw;
+  margin: 0;
+  border-inline: none;
+}
+
+
+/* =========================================================
+   LARGE SCREENS
    1366px and below
-   --------------------------------------------------------- */
+   ========================================================= */
+
 @media (max-width: 1366px) {
 
   .pos-page {
@@ -1615,17 +1638,30 @@ body,
     max-width: 320px;
   }
 
+  .pos-page .menu-panel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pos-page .menu-body {
+    display: flex;
+    flex-direction: row;
+    min-width: 0;
+  }
+
   .pos-page .category-tabs {
     width: 95px;
     min-width: 95px;
+    flex-shrink: 0;
   }
 
   .pos-page .category-tab {
     width: 95px;
     min-width: 95px;
     min-height: 90px;
-    font-size: 12px;
     padding: 4px;
+    font-size: 12px;
+    box-sizing: border-box;
   }
 
   .pos-page .menu-grid {
@@ -1652,9 +1688,11 @@ body,
 }
 
 
-/* ---------------------------------------------------------
+/* =========================================================
+   MEDIUM SCREENS
    1150px and below
-   --------------------------------------------------------- */
+   ========================================================= */
+
 @media (max-width: 1150px) {
 
   .pos-page .order-panel {
@@ -1673,6 +1711,7 @@ body,
     min-width: 85px;
     min-height: 80px;
     font-size: 11px;
+    padding: 4px;
   }
 
   .pos-page .menu-grid {
@@ -1703,14 +1742,17 @@ body,
 }
 
 
-/* ---------------------------------------------------------
+/* =========================================================
+   SMALL LAPTOP / TABLET
    1024px and below
-   --------------------------------------------------------- */
+   ========================================================= */
+
 @media (max-width: 1024px) {
 
-  /* KEEP POS HORIZONTAL */
+  /* KEEP POS SIDE-BY-SIDE */
   .pos-page {
     flex-direction: row;
+    min-width: 0;
   }
 
   .pos-page .order-panel {
@@ -1727,6 +1769,7 @@ body,
 
   .pos-page .menu-body {
     flex-direction: row;
+    min-width: 0;
   }
 
   .pos-page .category-tabs {
@@ -1738,6 +1781,7 @@ body,
     width: 75px;
     min-width: 75px;
     min-height: 70px;
+    padding: 3px;
     font-size: 10px;
   }
 
@@ -1789,10 +1833,16 @@ body,
 }
 
 
-/* ---------------------------------------------------------
+/* =========================================================
+   VERY SMALL SCREENS
    800px and below
-   --------------------------------------------------------- */
+   ========================================================= */
+
 @media (max-width: 800px) {
+
+  .pos-page {
+    flex-direction: row;
+  }
 
   .pos-page .order-panel {
     width: 35%;
@@ -1809,16 +1859,50 @@ body,
     width: 65px;
     min-width: 65px;
     min-height: 65px;
+    padding: 2px;
     font-size: 9px;
   }
 
   .pos-page .menu-grid {
     grid-template-columns: repeat(auto-fill,
         minmax(70px, 1fr));
+    gap: 4px;
+    padding: 4px;
   }
 
   .pos-page .menu-item {
     padding: 6px 2px;
     font-size: 0.65em;
   }
+
+  .pos-page .key {
+    padding: 5px 0;
+    font-size: 0.7em;
+  }
+
+  .pos-page .action-btn {
+    padding: 5px 2px;
+    font-size: 0.55em;
+  }
+}
+
+
+/* =========================================================
+   PREVENT POS CONTENT FROM FORCING THE SCREEN WIDER
+   ========================================================= */
+
+.pos-page,
+.pos-page .order-panel,
+.pos-page .menu-panel,
+.pos-page .menu-body,
+.pos-page .menu-grid {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.pos-page .menu-item,
+.pos-page .category-tab,
+.pos-page .action-btn,
+.pos-page .key {
+  box-sizing: border-box;
 }

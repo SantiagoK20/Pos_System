@@ -3,12 +3,18 @@ import { CATEGORIES } from '../data/menuData'
 
 function ManageMenu({ menuItems, onAdd, onEdit, onDelete }) {
     const [filter, setFilter] = useState('ALL')
+    const [searchTerm, setSearchTerm] = useState('')
     const [editingItem, setEditingItem] = useState(null)
     const [showAddForm, setShowAddForm] = useState(false)
     const [form, setForm] = useState({ name: '', price: '', category: CATEGORIES[0].key })
 
-    const filtered =
-        filter === 'ALL' ? menuItems : menuItems.filter((i) => i.category === filter)
+    const normalizedSearch = searchTerm.trim().toLowerCase()
+
+    const filtered = menuItems.filter((item) => {
+        const matchesCategory = filter === 'ALL' ? true : item.category === filter
+        const matchesSearch = !normalizedSearch || (item.name || '').toLowerCase().includes(normalizedSearch)
+        return matchesCategory && matchesSearch
+    })
 
     function openAddForm() {
         setForm({ name: '', price: '', category: CATEGORIES[0].key })
@@ -54,6 +60,16 @@ function ManageMenu({ menuItems, onAdd, onEdit, onDelete }) {
                         </option>
                     ))}
                 </select>
+
+                <input
+                    type="search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search items"
+                    className="manage-menu-search"
+                    aria-label="Search menu items"
+                />
+
                 <button className="add-item-btn" onClick={openAddForm}>+ Add Menu Item</button>
             </div>
 

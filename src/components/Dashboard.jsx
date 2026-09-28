@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { CATEGORIES } from '../data/menuData'
+
 import {
     BarChart,
     Bar,
+    LineChart,
+    Line,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -11,25 +14,47 @@ import {
     Cell,
 } from 'recharts'
 
-function Dashboard({ menuItems, salesLog, onResetSales }) {
+
+function Dashboard({
+    menuItems = [],
+    salesLog = [],
+    onResetSales,
+}) {
 
     // =========================================================
-    // DATE
+    // TODAY
     // =========================================================
 
     const getToday = () => {
         const today = new Date()
+
         const year = today.getFullYear()
-        const month = String(today.getMonth() + 1).padStart(2, '0')
-        const day = String(today.getDate()).padStart(2, '0')
+
+        const month = String(
+            today.getMonth() + 1
+        ).padStart(2, '0')
+
+        const day = String(
+            today.getDate()
+        ).padStart(2, '0')
 
         return `${year}-${month}-${day}`
     }
 
-    const [selectedDate, setSelectedDate] = useState(getToday())
 
     // =========================================================
-    // CONVERT SALE DATE
+    // STATES
+    // =========================================================
+
+    const [selectedDate, setSelectedDate] =
+        useState(getToday())
+
+    const [selectedCategory, setSelectedCategory] =
+        useState('ALL')
+
+
+    // =========================================================
+    // GET SALE DATE
     // =========================================================
 
     const getSaleDate = (sale) => {
@@ -37,13 +62,19 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
         const rawDate =
             sale.date ||
             sale.createdAt ||
-            sale.timestamp ||
             sale.created_at ||
+            sale.timestamp ||
             sale.time
 
-        if (!rawDate) return null
+        if (!rawDate) {
+            return null
+        }
 
-        // Firebase timestamp / JavaScript timestamp
+
+        // ---------------------------------------------------------
+        // NUMBER TIMESTAMP
+        // ---------------------------------------------------------
+
         if (typeof rawDate === 'number') {
 
             const timestamp =
@@ -53,117 +84,533 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
 
             const date = new Date(timestamp)
 
-            if (isNaN(date.getTime())) return null
+            if (isNaN(date.getTime())) {
+                return null
+            }
 
-            const year = date.getFullYear()
-            const month = String(date.getMonth() + 1).padStart(2, '0')
-            const day = String(date.getDate()).padStart(2, '0')
+            const year =
+                date.getFullYear()
+
+            const month =
+                String(
+                    date.getMonth() + 1
+                ).padStart(2, '0')
+
+            const day =
+                String(
+                    date.getDate()
+                ).padStart(2, '0')
 
             return `${year}-${month}-${day}`
         }
 
-        // Date string
+
+        // ---------------------------------------------------------
+        // DATE STRING
+        // ---------------------------------------------------------
+
         const date = new Date(rawDate)
 
-        if (isNaN(date.getTime())) return null
+        if (isNaN(date.getTime())) {
+            return null
+        }
 
-        const year = date.getFullYear()
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
+        const year =
+            date.getFullYear()
+
+        const month =
+            String(
+                date.getMonth() + 1
+            ).padStart(2, '0')
+
+        const day =
+            String(
+                date.getDate()
+            ).padStart(2, '0')
 
         return `${year}-${month}-${day}`
     }
 
+
     // =========================================================
-    // DAILY SALES
+    // SALES FOR SELECTED DATE
     // =========================================================
 
-    const dailySales = salesLog.filter((sale) => {
-        return getSaleDate(sale) === selectedDate
-    })
-
-    const totalOrders = dailySales.length
-
-    const grossRevenue = dailySales.reduce(
-        (sum, s) => sum + Number(s.total || 0),
-        0
+    const dailySales = salesLog.filter(
+        (sale) =>
+            getSaleDate(sale) === selectedDate
     )
 
-    const vatCollected = dailySales.reduce(
-        (sum, s) => sum + Number(s.vat || 0),
-        0
-    )
-
-    const netRevenue = grossRevenue - vatCollected
-
-    const avgOrderValue = totalOrders
-        ? grossRevenue / totalOrders
-        : 0
 
     // =========================================================
-    // TOP SELLING ITEMS
+    // SALES OVERVIEW
     // =========================================================
 
-    const itemStats = {}
+    const totalOrders =
+        dailySales.length
 
-    dailySales.forEach((sale) => {
 
-        sale.items.forEach((it) => {
+    const grossRevenue =
+        dailySales.reduce(
+            (sum, sale) =>
+                sum +
+                Number(
+                    sale.total || 0
+                ),
+            0
+        )
 
-            if (!itemStats[it.name]) {
-                itemStats[it.name] = {
-                    name: it.name,
-                    category: it.category,
-                    qty: 0,
-                    revenue: 0,
+
+    const vatCollected =
+        dailySales.reduce(
+            (sum, sale) =>
+                sum +
+                Number(
+                    sale.vat || 0
+                ),
+            0
+        )
+
+
+    const netRevenue =
+        grossRevenue -
+        vatCollected
+
+
+    const avgOrderValue =
+        totalOrders > 0
+            ? grossRevenue / totalOrders
+            : 0
+
+
+    // =========================================================
+    // FIREBASE CATEGORIES
+    //
+    // ONLY CURRENT FIREBASE MENU ITEMS ARE USED.
+    // =========================================================
+
+    const firebaseCategories = [
+        ...new Set(
+            menuItems
+                .map(
+                    (item) =>
+                        item.category
+                )
+                .filter(Boolean)
+        ),
+    ]
+
+
+    // =========================================================
+    // TOP 10 BEST-SELLING ITEMS
+    //
+    // IMPORTANT:
+    //
+    // We LOOP THROUGH menuItems FIRST.
+    //
+    // menuItems = CURRENT FIREBASE MENU
+    //
+    // Therefore an item that no longer exists in Firebase
+    // CANNOT appear in this list.
+    // =========================================================
+
+    const currentMenuSales =
+        menuItems.map((menuItem) => {
+
+            let qty = 0
+            let revenue = 0
+
+
+            // -----------------------------------------------------
+            // CHECK TODAY'S SALES
+            // -----------------------------------------------------
+
+            dailySales.forEach((sale) => {
+
+                if (
+                    !Array.isArray(
+                        sale.items
+                    )
+                ) {
+                    return
                 }
+
+
+                sale.items.forEach(
+                    (saleItem) => {
+
+                        let isSameItem =
+                            false
+
+
+                        // -------------------------------------------------
+                        // MATCH BY ID
+                        // -------------------------------------------------
+
+                        if (
+                            menuItem.id !==
+                            undefined &&
+                            menuItem.id !==
+                            null &&
+                            saleItem.id !==
+                            undefined &&
+                            saleItem.id !==
+                            null
+                        ) {
+
+                            isSameItem =
+                                String(
+                                    menuItem.id
+                                ) ===
+                                String(
+                                    saleItem.id
+                                )
+                        }
+
+
+                        // -------------------------------------------------
+                        // FALLBACK MATCH BY NAME
+                        //
+                        // Used only when an ID is missing.
+                        // -------------------------------------------------
+
+                        if (
+                            !isSameItem &&
+                            (
+                                saleItem.id ===
+                                undefined ||
+                                saleItem.id ===
+                                null ||
+                                menuItem.id ===
+                                undefined ||
+                                menuItem.id ===
+                                null
+                            )
+                        ) {
+
+                            const menuName =
+                                String(
+                                    menuItem.name ||
+                                    ''
+                                )
+                                    .trim()
+                                    .toLowerCase()
+
+                            const saleName =
+                                String(
+                                    saleItem.name ||
+                                    ''
+                                )
+                                    .trim()
+                                    .toLowerCase()
+
+                            isSameItem =
+                                menuName !== '' &&
+                                menuName ===
+                                saleName
+                        }
+
+
+                        if (!isSameItem) {
+                            return
+                        }
+
+
+                        // -------------------------------------------------
+                        // QUANTITY
+                        // -------------------------------------------------
+
+                        const saleQty =
+                            Number(
+                                saleItem.qty ??
+                                saleItem.quantity ??
+                                0
+                            )
+
+
+                        // -------------------------------------------------
+                        // PRICE
+                        //
+                        // First use the price recorded in the sale.
+                        //
+                        // If old sales do not contain a price,
+                        // use the current Firebase menu price.
+                        // -------------------------------------------------
+
+                        const salePrice =
+                            Number(
+                                saleItem.price ??
+                                menuItem.price ??
+                                0
+                            )
+
+
+                        qty += saleQty
+
+                        revenue +=
+                            saleQty *
+                            salePrice
+                    }
+                )
+            })
+
+
+            // ---------------------------------------------------------
+            // RETURN CURRENT FIREBASE ITEM
+            // ---------------------------------------------------------
+
+            return {
+                id:
+                    menuItem.id ??
+                    menuItem.key ??
+                    menuItem.name,
+
+                name:
+                    menuItem.name ||
+                    'Unnamed Item',
+
+                category:
+                    menuItem.category ||
+                    '',
+
+                price:
+                    Number(
+                        menuItem.price || 0
+                    ),
+
+                qty,
+
+                revenue,
             }
-
-            itemStats[it.name].qty += Number(it.qty || 0)
-
-            itemStats[it.name].revenue +=
-                Number(it.price || 0) *
-                Number(it.qty || 0)
         })
-    })
 
-    const topItems = Object.values(itemStats)
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 8)
 
     // =========================================================
-    // CATEGORY COUNTS
+    // CATEGORY FILTER
     // =========================================================
 
-    const categoryCounts = CATEGORIES.map((cat) => ({
-        ...cat,
-        count: menuItems.filter(
-            (i) => i.category === cat.key
-        ).length,
-    }))
+    const filteredMenuSales =
+        selectedCategory === 'ALL'
+            ? currentMenuSales
+            : currentMenuSales.filter(
+                (item) =>
+                    item.category ===
+                    selectedCategory
+            )
+
 
     // =========================================================
-    // FORMATTED DATE
+    // TOP 10
     // =========================================================
 
-    const formattedSelectedDate = new Date(
-        `${selectedDate}T00:00:00`
-    ).toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    })
+    const topItems =
+        filteredMenuSales
+            .filter(
+                (item) =>
+                    item.qty > 0
+            )
+            .sort(
+                (a, b) => {
+
+                    // Highest revenue first
+                    if (
+                        b.revenue !==
+                        a.revenue
+                    ) {
+                        return (
+                            b.revenue -
+                            a.revenue
+                        )
+                    }
+
+                    // If revenue is equal,
+                    // highest quantity first
+                    return (
+                        b.qty -
+                        a.qty
+                    )
+                }
+            )
+            .slice(0, 10)
+
+
+    // =========================================================
+    // MENU CATEGORIES
+    //
+    // EXISTING CATEGORY DESIGN IS KEPT.
+    // =========================================================
+
+    const categoryCounts =
+        CATEGORIES.map(
+            (category) => ({
+
+                ...category,
+
+                count:
+                    menuItems.filter(
+                        (item) =>
+                            item.category ===
+                            category.key
+                    ).length,
+            })
+        )
+
+
+    // =========================================================
+    // GET PREVIOUS DATE
+    // =========================================================
+
+    const getPreviousDate = (
+        dateString,
+        daysBack
+    ) => {
+
+        const date =
+            new Date(
+                `${dateString}T00:00:00`
+            )
+
+        date.setDate(
+            date.getDate() -
+            daysBack
+        )
+
+
+        const year =
+            date.getFullYear()
+
+        const month =
+            String(
+                date.getMonth() + 1
+            ).padStart(2, '0')
+
+        const day =
+            String(
+                date.getDate()
+            ).padStart(2, '0')
+
+
+        return `${year}-${month}-${day}`
+    }
+
+
+    // =========================================================
+    // SALES TREND
+    //
+    // 30 DAYS ENDING ON SELECTED DATE
+    // =========================================================
+
+    const salesTrendPeriodDays = 30
+    const salesTrend = []
+
+
+    for (
+        let i = salesTrendPeriodDays - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const date =
+            getPreviousDate(
+                selectedDate,
+                i
+            )
+
+
+        const salesForDate =
+            salesLog.filter(
+                (sale) =>
+                    getSaleDate(
+                        sale
+                    ) === date
+            )
+
+
+        const revenue =
+            salesForDate.reduce(
+                (sum, sale) =>
+                    sum +
+                    Number(
+                        sale.total || 0
+                    ),
+                0
+            )
+
+
+        const dateObject =
+            new Date(
+                `${date}T00:00:00`
+            )
+
+
+        const label =
+            dateObject.toLocaleDateString(
+                'en-US',
+                {
+                    month: 'short',
+                    day: 'numeric',
+                }
+            )
+
+
+        salesTrend.push({
+            date,
+            label,
+            revenue,
+        })
+    }
+
+
+    // =========================================================
+    // FORMATTED SELECTED DATE
+    // =========================================================
+
+    const formattedSelectedDate =
+        new Date(
+            `${selectedDate}T00:00:00`
+        ).toLocaleDateString(
+            'en-US',
+            {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            }
+        )
+
+
+    // =========================================================
+    // CATEGORY COLOR
+    // =========================================================
+
+    const getCategoryColor =
+        (category) => {
+
+            const foundCategory =
+                CATEGORIES.find(
+                    (cat) =>
+                        cat.key ===
+                        category
+                )
+
+            return (
+                foundCategory?.color ||
+                '#1b7a3d'
+            )
+        }
+
 
     // =========================================================
     // RETURN
     // =========================================================
 
     return (
+
         <div className="dashboard-page fade-in">
 
+
             {/* =================================================
-                DASHBOARD HEADER
+                HEADER
             ================================================= */}
 
             <div className="dashboard-title-row">
@@ -171,41 +618,57 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                 <div>
 
                     <h1 className="dashboard-title">
-                        Dashboard
+                        Analytics
                     </h1>
 
+
                     <p className="dashboard-subtitle">
-                        Sales for {formattedSelectedDate}
+
+                        Sales for{' '}
+
+                        {formattedSelectedDate}
+
                     </p>
+
 
                     <input
                         type="date"
                         value={selectedDate}
                         onChange={(e) =>
-                            setSelectedDate(e.target.value)
+                            setSelectedDate(
+                                e.target.value
+                            )
                         }
                         className="dashboard-date-input"
                     />
 
                 </div>
 
+
                 {totalOrders > 0 && (
+
                     <button
                         className="reset-sales-btn"
-                        onClick={onResetSales}
+                        onClick={
+                            onResetSales
+                        }
                     >
                         Reset Sales Data
                     </button>
+
                 )}
 
             </div>
 
 
             {/* =================================================
-                SALES CARDS
+                SALES OVERVIEW
             ================================================= */}
 
             <div className="dashboard-cards">
+
+
+                {/* GROSS REVENUE */}
 
                 <div className="dash-card">
 
@@ -213,16 +676,23 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                         GROSS REVENUE
                     </span>
 
+
                     <span className="dash-card-value">
-                        ₱{grossRevenue.toFixed(2)}
+
+                        ₱
+                        {grossRevenue.toFixed(2)}
+
                     </span>
 
+
                     <span className="dash-card-sub">
-                        {totalOrders} orders
+                        Total sales
                     </span>
 
                 </div>
 
+
+                {/* NET REVENUE */}
 
                 <div className="dash-card">
 
@@ -230,16 +700,44 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                         NET REVENUE
                     </span>
 
+
                     <span className="dash-card-value">
-                        ₱{netRevenue.toFixed(2)}
+
+                        ₱
+                        {netRevenue.toFixed(2)}
+
                     </span>
 
+
                     <span className="dash-card-sub">
-                        After 12% VAT
+                        After VAT
                     </span>
 
                 </div>
 
+
+                {/* TOTAL ORDERS */}
+
+                <div className="dash-card">
+
+                    <span className="dash-card-label">
+                        TOTAL ORDERS
+                    </span>
+
+
+                    <span className="dash-card-value">
+                        {totalOrders}
+                    </span>
+
+
+                    <span className="dash-card-sub">
+                        Completed transactions
+                    </span>
+
+                </div>
+
+
+                {/* AVERAGE ORDER VALUE */}
 
                 <div className="dash-card">
 
@@ -247,9 +745,14 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                         AVG ORDER VALUE
                     </span>
 
+
                     <span className="dash-card-value">
-                        ₱{avgOrderValue.toFixed(2)}
+
+                        ₱
+                        {avgOrderValue.toFixed(2)}
+
                     </span>
+
 
                     <span className="dash-card-sub">
                         Per transaction
@@ -257,20 +760,112 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
 
                 </div>
 
+            </div>
 
-                <div className="dash-card">
 
-                    <span className="dash-card-label">
-                        VAT COLLECTED
-                    </span>
+            {/* =================================================
+                SALES TREND
+            ================================================= */}
 
-                    <span className="dash-card-value">
-                        ₱{vatCollected.toFixed(2)}
-                    </span>
+            <div
+                className="dashboard-breakdown"
+                style={{
+                    marginBottom: 20,
+                }}
+            >
 
-                    <span className="dash-card-sub">
-                        12% VAT
-                    </span>
+                <h2>
+                    Sales Trend
+                </h2>
+
+
+                <p
+                    style={{
+                        fontSize: '0.85em',
+                        color: '#888',
+                        marginBottom: '10px',
+                    }}
+                >
+                    Revenue for the 30-day period
+                    ending on the selected date.
+                </p>
+
+
+                <div
+                    style={{
+                        width: '100%',
+                        height: 320,
+                        marginTop: 10,
+                    }}
+                >
+
+                    <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                    >
+
+                        <LineChart
+                            data={salesTrend}
+                            margin={{
+                                top: 10,
+                                right: 20,
+                                left: 10,
+                                bottom: 10,
+                            }}
+                            isAnimationActive={false}
+                        >
+
+                            <CartesianGrid
+                                strokeDasharray="3 3"
+                                opacity={0.3}
+                            />
+
+
+                            <XAxis
+                                dataKey="label"
+                            />
+
+
+                            <YAxis
+                                tickFormatter={
+                                    (value) =>
+                                        `₱${value}`
+                                }
+                            />
+
+
+                            <Tooltip
+                                formatter={
+                                    (value) => [
+                                        `₱${Number(
+                                            value
+                                        ).toFixed(2)}`,
+                                        'Revenue',
+                                    ]
+                                }
+                            />
+
+
+                            {/* NO ANIMATION */}
+
+                            <Line
+                                type="monotone"
+                                dataKey="revenue"
+                                stroke="#1b7a3d"
+                                strokeWidth={3}
+                                dot={{
+                                    r: 4,
+                                }}
+                                activeDot={{
+                                    r: 6,
+                                }}
+                                animationDuration={0}
+                                isAnimationActive={false}
+                            />
+
+                        </LineChart>
+
+                    </ResponsiveContainer>
 
                 </div>
 
@@ -278,78 +873,270 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
 
 
             {/* =================================================
-                TOP SELLING ITEMS
+                TOP 10 BEST-SELLING ITEMS
             ================================================= */}
 
             <div
                 className="dashboard-breakdown"
-                style={{ marginBottom: 20 }}
+                style={{
+                    marginBottom: 20,
+                }}
             >
 
-                <h2>
-                    Top Selling Items Analytics
-                </h2>
 
-                <div style={{ width: '100%', height: 350, marginTop: 10 }}>
+                {/* HEADER */}
+
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent:
+                            'space-between',
+                        alignItems:
+                            'center',
+                        gap: '15px',
+                        flexWrap:
+                            'wrap',
+                    }}
+                >
+
+                    <div>
+
+                        <h2>
+                            Top 10 Best-Selling Items
+                        </h2>
+
+
+                        <p
+                            style={{
+                                fontSize: '0.85em',
+                                color: '#888',
+                                marginBottom:
+                                    '10px',
+                            }}
+                        >
+                            Products from your
+                            current Firebase menu.
+                        </p>
+
+                    </div>
+
+
+                    {/* CATEGORY DROPDOWN */}
+
+                    <select
+                        value={
+                            selectedCategory
+                        }
+                        onChange={(e) =>
+                            setSelectedCategory(
+                                e.target.value
+                            )
+                        }
+                        style={{
+                            minWidth:
+                                '200px',
+                            padding:
+                                '10px 12px',
+                            border:
+                                '1px solid #ddd',
+                            borderRadius:
+                                '6px',
+                            background:
+                                '#fff',
+                            fontSize:
+                                '0.9em',
+                            fontWeight:
+                                600,
+                            color:
+                                '#444',
+                            cursor:
+                                'pointer',
+                        }}
+                    >
+
+                        <option value="ALL">
+                            All Categories
+                        </option>
+
+
+                        {firebaseCategories.map(
+                            (category) => (
+
+                                <option
+                                    key={
+                                        category
+                                    }
+                                    value={
+                                        category
+                                    }
+                                >
+                                    {category}
+                                </option>
+
+                            )
+                        )}
+
+                    </select>
+
+                </div>
+
+
+                {/* =================================================
+                    CHART
+                ================================================= */}
+
+                <div
+                    style={{
+                        width: '100%',
+                        height:
+                            Math.max(
+                                350,
+                                topItems.length *
+                                48
+                            ),
+                        marginTop: 10,
+                    }}
+                >
+
                     {topItems.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+
+                        <ResponsiveContainer
+                            width="100%"
+                            height="100%"
+                        >
+
                             <BarChart
                                 data={topItems}
                                 layout="vertical"
-                                margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                                margin={{
+                                    top: 5,
+                                    right: 30,
+                                    left: 40,
+                                    bottom: 5,
+                                }}
                             >
-                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} horizontal={true} vertical={true} />
-                                <XAxis type="number" tickFormatter={(value) => `₱${value}`} />
-                                <YAxis 
-                                    dataKey="name" 
-                                    type="category" 
-                                    width={120} 
-                                    tick={{ fontSize: 13, fill: '#666', fontWeight: 600 }} 
+
+                                <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    opacity={0.3}
+                                />
+
+
+                                <XAxis
+                                    type="number"
+                                    tickFormatter={
+                                        (value) =>
+                                            `₱${value}`
+                                    }
+                                />
+
+
+                                <YAxis
+                                    type="category"
+                                    dataKey="name"
+                                    width={140}
+                                    tick={{
+                                        fontSize: 13,
+                                        fill: '#666',
+                                        fontWeight: 600,
+                                    }}
                                     axisLine={false}
                                     tickLine={false}
                                 />
-                                <Tooltip 
+
+
+                                <Tooltip
                                     cursor={false}
-                                    isAnimationActive={false}
-                                    contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                                    formatter={(value, name, props) => [
-                                        `₱${Number(value).toFixed(2)} (${props.payload.qty} sold)`, 
-                                        'Revenue'
-                                    ]}
+                                    formatter={(
+                                        value,
+                                        name,
+                                        props
+                                    ) => [
+
+                                            `₱${Number(
+                                                value
+                                            ).toFixed(
+                                                2
+                                            )} — ${props
+                                                .payload
+                                                .qty
+                                            } sold`,
+
+                                            'Revenue',
+
+                                        ]}
                                 />
-                                <Bar 
-                                    dataKey="revenue" 
-                                    radius={[0, 4, 4, 0]} 
+
+
+                                <Bar
+                                    dataKey="revenue"
+                                    radius={[
+                                        0,
+                                        4,
+                                        4,
+                                        0,
+                                    ]}
                                     barSize={24}
-                                    fill="#f5a300"
-                                    animationDuration={1000}
-                                    activeBar={false}
-                                >
-                                    {
-                                        topItems.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={['#f5a300', '#1b7a3d', '#2ecc71', '#29a8e0', '#e5484d', '#aa3bff', '#ff4d4f', '#faad14'][index % 8]} />
-                                        ))
+                                    isAnimationActive={
+                                        false
                                     }
+                                >
+
+                                    {topItems.map(
+                                        (
+                                            entry,
+                                            index
+                                        ) => (
+
+                                            <Cell
+                                                key={
+                                                    entry.id ??
+                                                    `cell-${index}`
+                                                }
+                                                fill={
+                                                    getCategoryColor(
+                                                        entry.category
+                                                    )
+                                                }
+                                            />
+
+                                        )
+                                    )}
+
                                 </Bar>
+
                             </BarChart>
+
                         </ResponsiveContainer>
+
                     ) : (
-                        <div style={{ 
-                            height: '100%', 
-                            display: 'flex', 
-                            flexDirection: 'column',
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            color: '#888',
-                            background: '#fafafa',
-                            borderRadius: '8px',
-                            border: '1px dashed #d9d9d9',
-                            gap: '8px'
-                        }}>
-                            <span style={{ fontSize: '2em', opacity: 0.6 }}>📊</span>
-                            <span style={{ fontSize: '0.95em', fontWeight: 600, color: '#777' }}>No sales data available for this date</span>
+
+                        <div
+                            style={{
+                                height:
+                                    '100%',
+                                display:
+                                    'flex',
+                                alignItems:
+                                    'center',
+                                justifyContent:
+                                    'center',
+                                color:
+                                    '#888',
+                                background:
+                                    '#fafafa',
+                                borderRadius:
+                                    '8px',
+                                border:
+                                    '1px dashed #d9d9d9',
+                            }}
+                        >
+                            No sales for items in this
+                            category on the selected date.
                         </div>
+
                     )}
+
                 </div>
 
             </div>
@@ -357,7 +1144,7 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
 
             {/* =================================================
                 MENU CATEGORIES
-            ================================================= */}
+                ================================================= */}
 
             <div className="dashboard-breakdown">
 
@@ -365,39 +1152,133 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
                     Menu Categories
                 </h2>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px', marginTop: '20px' }}>
-                    {categoryCounts.map((cat) => (
-                        <div 
-                            key={cat.key} 
-                            style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                justifyContent: 'space-between',
-                                background: 'white', 
-                                border: '1px solid #eaeaea',
-                                borderLeft: `6px solid ${cat.color}`,
-                                borderRadius: '8px',
-                                padding: '16px 20px',
-                                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
-                                transition: 'box-shadow 0.2s ease',
-                                cursor: 'default'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)'}
-                            onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.03)'}
-                        >
-                            <span style={{ fontWeight: 700, fontSize: '0.95em', color: '#444' }}>
-                                {cat.key}
-                            </span>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                <span style={{ fontSize: '1.6em', fontWeight: 800, color: '#222', lineHeight: 1 }}>
-                                    {cat.count}
+
+                <div
+                    style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                            'repeat(auto-fill, minmax(220px, 1fr))',
+                        gap: '16px',
+                        marginTop: '20px',
+                    }}
+                >
+
+                    {categoryCounts.map(
+                        (cat) => (
+
+                            <div
+                                key={
+                                    cat.key
+                                }
+                                style={{
+                                    display:
+                                        'flex',
+                                    alignItems:
+                                        'center',
+                                    justifyContent:
+                                        'space-between',
+                                    background:
+                                        'white',
+                                    border:
+                                        '1px solid #eaeaea',
+                                    borderLeft:
+                                        `6px solid ${cat.color}`,
+                                    borderRadius:
+                                        '8px',
+                                    padding:
+                                        '16px 20px',
+                                    boxShadow:
+                                        '0 2px 6px rgba(0,0,0,0.03)',
+                                    transition:
+                                        'box-shadow 0.2s ease',
+                                    cursor:
+                                        'default',
+                                }}
+                                onMouseEnter={
+                                    (e) => {
+
+                                        e.currentTarget.style.boxShadow =
+                                            '0 4px 10px rgba(0,0,0,0.06)'
+                                    }
+                                }
+                                onMouseLeave={
+                                    (e) => {
+
+                                        e.currentTarget.style.boxShadow =
+                                            '0 2px 6px rgba(0,0,0,0.03)'
+                                    }
+                                }
+                            >
+
+                                <span
+                                    style={{
+                                        fontWeight:
+                                            700,
+                                        fontSize:
+                                            '0.95em',
+                                        color:
+                                            '#444',
+                                    }}
+                                >
+                                    {
+                                        cat.key
+                                    }
                                 </span>
-                                <span style={{ fontSize: '0.7em', fontWeight: 600, color: '#aaa', textTransform: 'uppercase', marginTop: '4px' }}>
-                                    Items
-                                </span>
+
+
+                                <div
+                                    style={{
+                                        display:
+                                            'flex',
+                                        flexDirection:
+                                            'column',
+                                        alignItems:
+                                            'flex-end',
+                                    }}
+                                >
+
+                                    <span
+                                        style={{
+                                            fontSize:
+                                                '1.6em',
+                                            fontWeight:
+                                                800,
+                                            color:
+                                                '#222',
+                                            lineHeight:
+                                                1,
+                                        }}
+                                    >
+                                        {
+                                            cat.count
+                                        }
+                                    </span>
+
+
+                                    <span
+                                        style={{
+                                            fontSize:
+                                                '0.7em',
+                                            fontWeight:
+                                                600,
+                                            color:
+                                                '#aaa',
+                                            textTransform:
+                                                'uppercase',
+                                            marginTop:
+                                                '4px',
+                                        }}
+                                    >
+                                        Items
+                                    </span>
+
+                                </div>
+
                             </div>
-                        </div>
-                    ))}
+
+                        )
+                    )}
+
                 </div>
 
             </div>
@@ -405,5 +1286,6 @@ function Dashboard({ menuItems, salesLog, onResetSales }) {
         </div>
     )
 }
+
 
 export default Dashboard
