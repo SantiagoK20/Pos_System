@@ -5,13 +5,14 @@ import PaymentModal from './PaymentModal'
 import Receipt from './Receipt'
 import BufferPrintModal from './BufferPrintModal'
 
-function POSScreen({ menuItems, onCompleteSale }) {
+function POSScreen({ menuItems, cashierUsername, cashierShift, onCompleteSale }) {
     const [activeCategory, setActiveCategory] = useState('SHORT ORDER')
     const [cart, setCart] = useState([])
     const [modalItem, setModalItem] = useState(null)
     const [showPayment, setShowPayment] = useState(false)
     const [showBufferPrint, setShowBufferPrint] = useState(false)
     const [completedSale, setCompletedSale] = useState(null)
+    const [lastPaidSale, setLastPaidSale] = useState(null)
 
     // Numpad input (used for discounts)
     const [numpadValue, setNumpadValue] = useState('')
@@ -119,6 +120,8 @@ function POSScreen({ menuItems, onCompleteSale }) {
         const sale = {
             id: Date.now(),
             date: new Date().toISOString(),
+            cashierUsername,
+            shift: cashierShift,
             items: cart.map((c) => ({
                 id: c.id,
                 name: c.name,
@@ -138,6 +141,7 @@ function POSScreen({ menuItems, onCompleteSale }) {
         }
         onCompleteSale(sale)
         setCompletedSale(sale)
+        setLastPaidSale(sale)
         setShowPayment(false)
 
         if (method === 'cash') {
@@ -246,9 +250,10 @@ function POSScreen({ menuItems, onCompleteSale }) {
                 <div className="action-row">
                     <button 
                         className="action-btn buffer"
+                        disabled={!lastPaidSale}
                         onClick={() => {
-                            if (cart.length === 0) {
-                                alert('No items in the order to print!')
+                            if (!lastPaidSale?.items?.length) {
+                                alert('Complete payment before printing the order!')
                                 return
                             }
                             setShowBufferPrint(true)
@@ -314,7 +319,7 @@ function POSScreen({ menuItems, onCompleteSale }) {
 
             {showBufferPrint && (
                 <BufferPrintModal
-                    cart={cart}
+                    sale={lastPaidSale}
                     onClose={() => setShowBufferPrint(false)}
                 />
             )}

@@ -1,22 +1,47 @@
-import { useState } from 'react'
-
-function BufferPrintModal({ cart, onClose }) {
-    if (!cart || cart.length === 0) return null
+function BufferPrintModal({ sale, onClose }) {
+    if (!sale?.items?.length) return null
 
     // Categorize items
     const kitchenCategories = ['SHORT ORDER', 'VALUE MEALS', 'RICE', 'PULUTAN']
     const dessertCategories = ['REFRESHMENT', 'DRINKS', 'OTHERS']
 
-    const kitchenItems = cart.filter((i) => kitchenCategories.includes(i.category))
-    const dessertItems = cart.filter((i) => dessertCategories.includes(i.category) || !kitchenCategories.includes(i.category))
+    const kitchenItems = sale.items.filter((i) => kitchenCategories.includes(i.category))
+    const dessertItems = sale.items.filter((i) => dessertCategories.includes(i.category) || !kitchenCategories.includes(i.category))
 
-    const ticketDate = new Date()
+    const ticketDate = new Date(sale.date)
 
-    const handlePrintStation = (stationId) => {
-        // Hide non-selected print sections temporarily or trigger window.print
+    const handlePrintStation = async (stationId) => {
         const printContent = document.getElementById(stationId)
         if (!printContent) {
             window.print()
+            return
+        }
+
+        const html = `
+            <html>
+                <head>
+                    <title>Buffer Print - ${stationId.toUpperCase()}</title>
+                    <style>
+                        body { font-family: 'Courier New', Courier, monospace; font-size: 14px; margin: 10px; }
+                        h2 { margin: 0 0 4px; text-align: center; font-size: 18px; }
+                        p { margin: 2px 0; text-align: center; }
+                        .line { border-bottom: 1px dashed #000; margin: 8px 0; }
+                        .item { display: flex; justify-content: space-between; margin: 4px 0; font-size: 16px; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    ${printContent.innerHTML}
+                </body>
+            </html>
+        `
+
+        if (window.posPrinter) {
+            try {
+                await window.posPrinter.printHtml(html)
+            } catch (error) {
+                console.error('Failed to print buffer slip:', error)
+                alert(`Failed to print buffer slip: ${error.message}`)
+            }
             return
         }
 
@@ -25,23 +50,7 @@ function BufferPrintModal({ cart, onClose }) {
         const printWindow = window.open(windowUrl, uniqueName, 'left=100,top=100,width=400,height=600')
 
         if (printWindow) {
-            printWindow.document.write(`
-                <html>
-                    <head>
-                        <title>Buffer Print - ${stationId.toUpperCase()}</title>
-                        <style>
-                            body { font-family: 'Courier New', Courier, monospace; font-size: 14px; margin: 10px; }
-                            h2 { margin: 0 0 4px; text-align: center; font-size: 18px; }
-                            p { margin: 2px 0; text-align: center; }
-                            .line { border-bottom: 1px dashed #000; margin: 8px 0; }
-                            .item { display: flex; justify-content: space-between; margin: 4px 0; font-size: 16px; font-weight: bold; }
-                        </style>
-                    </head>
-                    <body>
-                        ${printContent.innerHTML}
-                    </body>
-                </html>
-            `)
+            printWindow.document.write(html)
             printWindow.document.close()
             printWindow.focus()
             printWindow.print()
@@ -66,6 +75,7 @@ function BufferPrintModal({ cart, onClose }) {
                         <div id="kitchen-ticket">
                             <h2 style={{ textAlign: 'center', margin: '0 0 4px', fontSize: '1.2em', color: '#d48806' }}>🔥 KITCHEN SLIP</h2>
                             <p style={{ textTransform: 'uppercase', fontWeight: 600, fontSize: '0.8em', color: '#666', textAlign: 'center', margin: '0 0 8px' }}>Prep Station: Kitchen Area</p>
+                            <p style={{ fontSize: '0.75em', color: '#666', textAlign: 'center' }}>Transaction: {sale.id} | {sale.orderType === 'take_out' ? 'TAKE OUT' : 'DINE IN'}</p>
                             <p style={{ fontSize: '0.75em', color: '#888', textAlign: 'center' }}>Time: {ticketDate.toLocaleTimeString()} | Date: {ticketDate.toLocaleDateString()}</p>
                             <div style={{ borderBottom: '1px dashed #ccc', margin: '10px 0' }}></div>
                             
@@ -97,6 +107,7 @@ function BufferPrintModal({ cart, onClose }) {
                         <div id="dessert-ticket">
                             <h2 style={{ textAlign: 'center', margin: '0 0 4px', fontSize: '1.2em', color: '#096dd9' }}>🍧 DESSERT & BAR SLIP</h2>
                             <p style={{ textTransform: 'uppercase', fontWeight: 600, fontSize: '0.8em', color: '#666', textAlign: 'center', margin: '0 0 8px' }}>Prep Station: Dessert & Beverage Area</p>
+                            <p style={{ fontSize: '0.75em', color: '#666', textAlign: 'center' }}>Transaction: {sale.id} | {sale.orderType === 'take_out' ? 'TAKE OUT' : 'DINE IN'}</p>
                             <p style={{ fontSize: '0.75em', color: '#888', textAlign: 'center' }}>Time: {ticketDate.toLocaleTimeString()} | Date: {ticketDate.toLocaleDateString()}</p>
                             <div style={{ borderBottom: '1px dashed #ccc', margin: '10px 0' }}></div>
 

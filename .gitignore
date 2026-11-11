@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 
 laravel-backend/storage/firebase-credentials.json
+php/opcache-cache/

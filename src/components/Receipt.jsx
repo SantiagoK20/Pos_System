@@ -3,8 +3,17 @@ function Receipt({ sale, onClose }) {
 
     const receiptDate = new Date(sale.date)
 
-    function handlePrint() {
-        window.print()
+    async function handlePrint() {
+        try {
+            if (window.posPrinter) {
+                await window.posPrinter.printCurrent()
+            } else {
+                window.print()
+            }
+        } catch (error) {
+            console.error('Failed to print receipt:', error)
+            alert(`Failed to print receipt: ${error.message}`)
+        }
     }
 
     return (
@@ -36,6 +45,16 @@ function Receipt({ sale, onClose }) {
                             <strong>Time:</strong>{' '}
                             {receiptDate.toLocaleTimeString()}
                         </p>
+                        {(sale.cashierUsername || sale.cashierId) && (
+                            <p>
+                                <strong>Cashier:</strong> {sale.cashierUsername || sale.cashierId}
+                            </p>
+                        )}
+                        {sale.shift && (
+                            <p>
+                                <strong>Shift:</strong> {sale.shift}
+                            </p>
+                        )}
                     </div>
 
                     <p>--------------------------------</p>

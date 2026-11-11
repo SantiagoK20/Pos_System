@@ -21,8 +21,12 @@ import ManageCashiers from './components/ManageCashiers'
 // API
 // =========================================================
 
-const API_URL = '/api/menu'
-const SALES_API_URL = '/api/sales'
+const API_URL = window.location.protocol === 'file:'
+  ? 'http://127.0.0.1:8001/api/menu'
+  : '/api/menu'
+const SALES_API_URL = window.location.protocol === 'file:'
+  ? 'http://127.0.0.1:8001/api/sales'
+  : '/api/sales'
 
 
 function App() {
@@ -36,6 +40,9 @@ function App() {
 
   const [role, setRole] =
     useState('cashier')
+
+  const [cashierSession, setCashierSession] =
+    useState({ id: '', shift: '' })
 
   const [view, setView] =
     useState('pos')
@@ -713,12 +720,19 @@ function App() {
   // =========================================================
 
   function handleLogin(
-    userRole
+    userRole,
+    cashierUsername = '',
+    cashierShift = ''
   ) {
 
     setRole(
       userRole
     )
+
+    setCashierSession({
+      id: cashierUsername,
+      shift: cashierShift,
+    })
 
     setLoggedIn(
       true
@@ -752,6 +766,8 @@ function App() {
     setLoggedIn(
       false
     )
+
+    setCashierSession({ id: '', shift: '' })
 
     setView(
       'pos'
@@ -1239,7 +1255,7 @@ function App() {
 
   return (
 
-    <div className="pos-wrapper">
+    <div className={`pos-wrapper${view !== 'pos' ? ' content-wrapper' : ''}`}>
 
 
       {/* =================================================
@@ -1317,7 +1333,7 @@ function App() {
       {view ===
         'manageCashiers' && (
 
-          <ManageCashiers />
+          <ManageCashiers salesLog={salesLog} />
 
         )}
 
@@ -1333,6 +1349,9 @@ function App() {
             menuItems={
               menuItems
             }
+
+            cashierUsername={cashierSession.id}
+            cashierShift={cashierSession.shift}
 
             onCompleteSale={
               recordSale

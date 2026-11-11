@@ -1,4 +1,4 @@
-import logo from '../assets/logo.png'
+import logo from '../assets/atecles-grill-logo.jpg'
 
 function TopBar({ role, view, onNavigate, onLogout }) {
     return (

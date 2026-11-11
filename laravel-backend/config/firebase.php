@@ -9,7 +9,7 @@ return [
      * ------------------------------------------------------------------------
      */
 
-    'default' => env('FIREBASE_PROJECT', 'app'),
+    'default' => env('FIREBASE_PROJECT', 'atecles-grill-pos'),
 
     /*
      * ------------------------------------------------------------------------
@@ -18,7 +18,7 @@ return [
      */
 
     'projects' => [
-        'app' => [
+        'atecles-grill-pos' => [
 
             /*
              * ------------------------------------------------------------------------
@@ -101,7 +101,10 @@ return [
                  * https://my-project-id.firebaseio.com
                  */
 
-                'url' => env('FIREBASE_DATABASE_URL'),
+                'url' => env(
+                    'FIREBASE_DATABASE_URL',
+                    'https://atecles-grill-pos-default-rtdb.asia-southeast1.firebasedatabase.app'
+                ),
 
                 /*
                  * As a best practice, a service should have access to only the resources it needs.

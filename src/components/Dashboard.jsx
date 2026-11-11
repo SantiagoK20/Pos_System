@@ -2,8 +2,6 @@ import { useState } from 'react'
 import { CATEGORIES } from '../data/menuData'
 
 import {
-    BarChart,
-    Bar,
     LineChart,
     Line,
     XAxis,
@@ -11,7 +9,6 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Cell,
 } from 'recharts'
 
 
@@ -400,7 +397,7 @@ function Dashboard({
 
 
     // =========================================================
-    // TOP 10
+    // TOP ITEMS BY QUANTITY SOLD
     // =========================================================
 
     const topItems =
@@ -412,7 +409,11 @@ function Dashboard({
             .sort(
                 (a, b) => {
 
-                    // Highest revenue first
+                    // Highest quantity sold first
+                    if (b.qty !== a.qty) {
+                        return b.qty - a.qty
+                    }
+
                     if (
                         b.revenue !==
                         a.revenue
@@ -423,8 +424,6 @@ function Dashboard({
                         )
                     }
 
-                    // If revenue is equal,
-                    // highest quantity first
                     return (
                         b.qty -
                         a.qty
@@ -457,64 +456,42 @@ function Dashboard({
 
 
     // =========================================================
-    // GET PREVIOUS DATE
-    // =========================================================
-
-    const getPreviousDate = (
-        dateString,
-        daysBack
-    ) => {
-
-        const date =
-            new Date(
-                `${dateString}T00:00:00`
-            )
-
-        date.setDate(
-            date.getDate() -
-            daysBack
-        )
-
-
-        const year =
-            date.getFullYear()
-
-        const month =
-            String(
-                date.getMonth() + 1
-            ).padStart(2, '0')
-
-        const day =
-            String(
-                date.getDate()
-            ).padStart(2, '0')
-
-
-        return `${year}-${month}-${day}`
-    }
-
-
     // =========================================================
     // SALES TREND
     //
-    // 30 DAYS ENDING ON SELECTED DATE
+    // DAILY REVENUE FOR THE SELECTED MONTH
     // =========================================================
 
-    const salesTrendPeriodDays = 30
+    const [selectedYear, selectedMonth] = selectedDate
+        .split('-')
+        .map(Number)
+    const salesTrendDays = new Date(
+        selectedYear,
+        selectedMonth,
+        0
+    ).getDate()
+    const salesTrendMonthLabel = new Date(
+        selectedYear,
+        selectedMonth - 1,
+        1
+    ).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+    })
     const salesTrend = []
 
 
     for (
-        let i = salesTrendPeriodDays - 1;
-        i >= 0;
-        i--
+        let day = 1;
+        day <= salesTrendDays;
+        day++
     ) {
 
-        const date =
-            getPreviousDate(
-                selectedDate,
-                i
-            )
+        const date = [
+            selectedYear,
+            String(selectedMonth).padStart(2, '0'),
+            String(day).padStart(2, '0'),
+        ].join('-')
 
 
         const salesForDate =
@@ -580,27 +557,6 @@ function Dashboard({
 
 
     // =========================================================
-    // CATEGORY COLOR
-    // =========================================================
-
-    const getCategoryColor =
-        (category) => {
-
-            const foundCategory =
-                CATEGORIES.find(
-                    (cat) =>
-                        cat.key ===
-                        category
-                )
-
-            return (
-                foundCategory?.color ||
-                '#1b7a3d'
-            )
-        }
-
-
-    // =========================================================
     // RETURN
     // =========================================================
 
@@ -614,23 +570,17 @@ function Dashboard({
             ================================================= */}
 
             <div className="dashboard-title-row">
-
-                <div>
-
+                <div className="dashboard-title-center">
                     <h1 className="dashboard-title">
                         Analytics
                     </h1>
 
-
                     <p className="dashboard-subtitle">
-
-                        Sales for{' '}
-
-                        {formattedSelectedDate}
-
+                        Sales for {formattedSelectedDate}
                     </p>
+                </div>
 
-
+                <div className="dashboard-header-controls">
                     <input
                         type="date"
                         value={selectedDate}
@@ -642,22 +592,15 @@ function Dashboard({
                         className="dashboard-date-input"
                     />
 
+                    {totalOrders > 0 && (
+                        <button
+                            className="reset-sales-btn"
+                            onClick={onResetSales}
+                        >
+                            Reset Sales Data
+                        </button>
+                    )}
                 </div>
-
-
-                {totalOrders > 0 && (
-
-                    <button
-                        className="reset-sales-btn"
-                        onClick={
-                            onResetSales
-                        }
-                    >
-                        Reset Sales Data
-                    </button>
-
-                )}
-
             </div>
 
 
@@ -786,8 +729,7 @@ function Dashboard({
                         marginBottom: '10px',
                     }}
                 >
-                    Revenue for the 30-day period
-                    ending on the selected date.
+                    Daily revenue for {salesTrendMonthLabel}.
                 </p>
 
 
@@ -872,274 +814,56 @@ function Dashboard({
             </div>
 
 
-            {/* =================================================
-                TOP 10 BEST-SELLING ITEMS
-            ================================================= */}
-
-            <div
-                className="dashboard-breakdown"
-                style={{
-                    marginBottom: 20,
-                }}
-            >
-
-
-                {/* HEADER */}
-
-                <div
-                    style={{
-                        display: 'flex',
-                        justifyContent:
-                            'space-between',
-                        alignItems:
-                            'center',
-                        gap: '15px',
-                        flexWrap:
-                            'wrap',
-                    }}
-                >
-
+            <section className="dashboard-breakdown item-sales-section">
+                <div className="item-sales-header">
                     <div>
-
-                        <h2>
-                            Top 10 Best-Selling Items
-                        </h2>
-
-
-                        <p
-                            style={{
-                                fontSize: '0.85em',
-                                color: '#888',
-                                marginBottom:
-                                    '10px',
-                            }}
-                        >
-                            Products from your
-                            current Firebase menu.
-                        </p>
-
+                        <h2>Menu Items Sold</h2>
+                        <p>Quantity sold and revenue for {formattedSelectedDate}.</p>
                     </div>
 
-
-                    {/* CATEGORY DROPDOWN */}
-
                     <select
-                        value={
-                            selectedCategory
-                        }
-                        onChange={(e) =>
-                            setSelectedCategory(
-                                e.target.value
-                            )
-                        }
-                        style={{
-                            minWidth:
-                                '200px',
-                            padding:
-                                '10px 12px',
-                            border:
-                                '1px solid #ddd',
-                            borderRadius:
-                                '6px',
-                            background:
-                                '#fff',
-                            fontSize:
-                                '0.9em',
-                            fontWeight:
-                                600,
-                            color:
-                                '#444',
-                            cursor:
-                                'pointer',
-                        }}
+                        aria-label="Filter menu items by category"
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
                     >
-
-                        <option value="ALL">
-                            All Categories
-                        </option>
-
-
-                        {firebaseCategories.map(
-                            (category) => (
-
-                                <option
-                                    key={
-                                        category
-                                    }
-                                    value={
-                                        category
-                                    }
-                                >
-                                    {category}
-                                </option>
-
-                            )
-                        )}
-
+                        <option value="ALL">All Categories</option>
+                        {firebaseCategories.map((category) => (
+                            <option key={category} value={category}>
+                                {category}
+                            </option>
+                        ))}
                     </select>
-
                 </div>
 
-
-                {/* =================================================
-                    CHART
-                ================================================= */}
-
-                <div
-                    style={{
-                        width: '100%',
-                        height:
-                            Math.max(
-                                350,
-                                topItems.length *
-                                48
-                            ),
-                        marginTop: 10,
-                    }}
-                >
-
-                    {topItems.length > 0 ? (
-
-                        <ResponsiveContainer
-                            width="100%"
-                            height="100%"
-                        >
-
-                            <BarChart
-                                data={topItems}
-                                layout="vertical"
-                                margin={{
-                                    top: 5,
-                                    right: 30,
-                                    left: 40,
-                                    bottom: 5,
-                                }}
-                            >
-
-                                <CartesianGrid
-                                    strokeDasharray="3 3"
-                                    opacity={0.3}
-                                />
-
-
-                                <XAxis
-                                    type="number"
-                                    tickFormatter={
-                                        (value) =>
-                                            `₱${value}`
-                                    }
-                                />
-
-
-                                <YAxis
-                                    type="category"
-                                    dataKey="name"
-                                    width={140}
-                                    tick={{
-                                        fontSize: 13,
-                                        fill: '#666',
-                                        fontWeight: 600,
-                                    }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-
-
-                                <Tooltip
-                                    cursor={false}
-                                    formatter={(
-                                        value,
-                                        name,
-                                        props
-                                    ) => [
-
-                                            `₱${Number(
-                                                value
-                                            ).toFixed(
-                                                2
-                                            )} — ${props
-                                                .payload
-                                                .qty
-                                            } sold`,
-
-                                            'Revenue',
-
-                                        ]}
-                                />
-
-
-                                <Bar
-                                    dataKey="revenue"
-                                    radius={[
-                                        0,
-                                        4,
-                                        4,
-                                        0,
-                                    ]}
-                                    barSize={24}
-                                    isAnimationActive={
-                                        false
-                                    }
-                                >
-
-                                    {topItems.map(
-                                        (
-                                            entry,
-                                            index
-                                        ) => (
-
-                                            <Cell
-                                                key={
-                                                    entry.id ??
-                                                    `cell-${index}`
-                                                }
-                                                fill={
-                                                    getCategoryColor(
-                                                        entry.category
-                                                    )
-                                                }
-                                            />
-
-                                        )
-                                    )}
-
-                                </Bar>
-
-                            </BarChart>
-
-                        </ResponsiveContainer>
-
-                    ) : (
-
-                        <div
-                            style={{
-                                height:
-                                    '100%',
-                                display:
-                                    'flex',
-                                alignItems:
-                                    'center',
-                                justifyContent:
-                                    'center',
-                                color:
-                                    '#888',
-                                background:
-                                    '#fafafa',
-                                borderRadius:
-                                    '8px',
-                                border:
-                                    '1px dashed #d9d9d9',
-                            }}
-                        >
-                            No sales for items in this
-                            category on the selected date.
-                        </div>
-
-                    )}
-
-                </div>
-
-            </div>
+                {topItems.length > 0 ? (
+                    <div className="item-sales-table-wrap">
+                        <table className="item-sales-table">
+                            <thead>
+                                <tr>
+                                    <th>Menu Item</th>
+                                    <th>Category</th>
+                                    <th>Quantity Sold</th>
+                                    <th>Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {topItems.map((item) => (
+                                    <tr key={item.id}>
+                                        <td>{item.name}</td>
+                                        <td>{item.category || 'Uncategorized'}</td>
+                                        <td>{item.qty}</td>
+                                        <td>₱{item.revenue.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="item-sales-empty">
+                        No items were sold in this category on the selected date.
+                    </div>
+                )}
+            </section>
 
 
             {/* =================================================

@@ -1,5 +1,13 @@
 # React + Vite
 
+## Local development
+
+Run `npm run dev` from the repository root to start the bundled PHP/Laravel API
+on `127.0.0.1:8001` and the Vite frontend. The Laravel front controller is used
+as the PHP server router so API routes are handled correctly. Open the Vite URL
+printed in the terminal. The API proxy forwards `/api` requests to that backend.
+`npm run dev:full` is an alias for the same command.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
