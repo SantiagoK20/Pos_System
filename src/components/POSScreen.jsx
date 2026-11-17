@@ -5,7 +5,7 @@ import PaymentModal from './PaymentModal'
 import Receipt from './Receipt'
 import BufferPrintModal from './BufferPrintModal'
 
-function POSScreen({ menuItems, cashierUsername, cashierShift, onCompleteSale }) {
+function POSScreen({ menuItems, cashierId, cashierUsername, cashierShift, onCompleteSale }) {
     const [activeCategory, setActiveCategory] = useState('SHORT ORDER')
     const [cart, setCart] = useState([])
     const [modalItem, setModalItem] = useState(null)
@@ -120,6 +120,7 @@ function POSScreen({ menuItems, cashierUsername, cashierShift, onCompleteSale })
         const sale = {
             id: Date.now(),
             date: new Date().toISOString(),
+            cashierId,
             cashierUsername,
             shift: cashierShift,
             items: cart.map((c) => ({
@@ -143,12 +144,6 @@ function POSScreen({ menuItems, cashierUsername, cashierShift, onCompleteSale })
         setCompletedSale(sale)
         setLastPaidSale(sale)
         setShowPayment(false)
-
-        if (method === 'cash') {
-            alert(`Payment received!\nChange: ₱${change.toFixed(2)}`)
-        } else {
-            alert('E-Wallet payment confirmed!')
-        }
         clearCart()
     }
 

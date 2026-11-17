@@ -186,7 +186,7 @@ Route::post('/sales', function (Request $request) {
 
         'date' => 'nullable|string',
         'cashierUsername' => 'nullable|string|max:50',
-        'cashierId' => 'nullable|string|max:50',
+        'cashierId' => 'nullable|string|max:128',
         'shift' => 'nullable|in:AM,PM',
         'discount' => 'nullable',
         'discountValue' => 'nullable|numeric',
@@ -201,6 +201,7 @@ Route::post('/sales', function (Request $request) {
         'cashierUsername' => isset($data['cashierUsername'])
             ? trim($data['cashierUsername'])
             : (isset($data['cashierId']) ? trim($data['cashierId']) : null),
+        'cashierId' => $data['cashierId'] ?? null,
         'shift' => $data['shift'] ?? null,
 
         'items' => $data['items'],
@@ -294,7 +295,7 @@ Route::get('/cashiers', function (Request $request) use ($authorizeAdmin) {
 
         if (
             !isset($cashier['cashierUsername']) ||
-            ($cashier['cashierId'] ?? null) !== $cashier['cashierUsername'] ||
+            ($cashier['cashierId'] ?? null) !== (string) $databaseKey ||
             array_key_exists('cashierName', $cashier) ||
             array_key_exists('role', $cashier) ||
             ($cashier['uid'] ?? null) !== (string) $databaseKey
@@ -303,7 +304,7 @@ Route::get('/cashiers', function (Request $request) use ($authorizeAdmin) {
                 ->getChild((string) $databaseKey)
                 ->update([
                     'cashierUsername' => $cashier['cashierUsername'],
-                    'cashierId' => $cashier['cashierUsername'],
+                    'cashierId' => (string) $databaseKey,
                     'cashierName' => null,
                     'role' => null,
                     'uid' => (string) $databaseKey,
@@ -311,7 +312,7 @@ Route::get('/cashiers', function (Request $request) use ($authorizeAdmin) {
         }
 
         unset($cashier['cashierName'], $cashier['role']);
-        $cashier['cashierId'] = $cashier['cashierUsername'];
+        $cashier['cashierId'] = (string) $databaseKey;
         $cashier['uid'] = (string) $databaseKey;
         $cashier['databaseKey'] = (string) $databaseKey;
     }
@@ -524,6 +525,7 @@ Route::get('/cashier-profile', function (Request $request) {
         return response()->json([
             'success' => true,
             'data' => [
+                'cashierId' => $uid,
                 'cashierUsername' => $cashier['cashierUsername']
                         ?? '',
                 'shift' => $cashier['shift'] ?? null,
@@ -654,7 +656,7 @@ Route::post('/cashiers', function (Request $request) use ($authorizeAdmin) {
             )
             ->set([
                 'cashierUsername' => $cashierUsername,
-                'cashierId' => $cashierUsername,
+                'cashierId' => $user->uid,
                 'uid' => $user->uid,
                 'shift' => $data['shift'],
             ]);
@@ -671,6 +673,7 @@ Route::post('/cashiers', function (Request $request) use ($authorizeAdmin) {
                 'Cashier account created successfully.',
 
             'data' => [
+                'cashierId' => $user->uid,
                 'cashierUsername' => $cashierUsername,
                 'shift' => $data['shift'],
             ],

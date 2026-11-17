@@ -91,7 +91,12 @@ function LoginScreen({ onLogin }) {
 
                 const cashierUsername = result.data.cashierUsername || identifier.trim()
                 console.log('Cashier logged in:', cashierUsername)
-                onLogin('cashier', cashierUsername, result.data.shift)
+                onLogin(
+                    'cashier',
+                    result.data.cashierId || user.uid,
+                    cashierUsername,
+                    result.data.shift
+                )
             }
 
         } catch (error) {

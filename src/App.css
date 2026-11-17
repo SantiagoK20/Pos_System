@@ -1425,6 +1425,66 @@ body,
   box-sizing: border-box;
 }
 
+.sale-receipt {
+  width: 58mm;
+  min-height: 0;
+  padding: 4mm;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.sale-receipt .receipt-header h1 {
+  font-size: 17px;
+  letter-spacing: 1px;
+}
+
+.sale-receipt .receipt-header p {
+  margin: 2px 0;
+}
+
+.sale-receipt .receipt-info p {
+  margin: 3px 0;
+}
+
+.sale-receipt-divider {
+  border-top: 1px dashed #555;
+  margin: 7px 0;
+}
+
+.sale-receipt .receipt-item {
+  margin: 5px 0;
+}
+
+.sale-receipt .receipt-item-name {
+  font-weight: normal;
+}
+
+.sale-receipt .receipt-item-details {
+  gap: 8px;
+  padding-left: 4px;
+}
+
+.sale-receipt .receipt-totals > div,
+.sale-receipt .receipt-payment > div {
+  margin: 3px 0;
+}
+
+.sale-receipt .receipt-total {
+  border-top: 1px dashed #555;
+  font-size: 14px;
+  margin-top: 6px !important;
+  padding-top: 5px;
+}
+
+.sale-receipt .sale-receipt-meta {
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.sale-receipt .receipt-footer {
+  margin-top: 9px;
+}
+
 .receipt-header {
   text-align: center;
 }
@@ -1519,6 +1579,11 @@ body,
     width: 80mm;
     margin: 0;
     padding: 5mm;
+  }
+
+  .sale-receipt {
+    width: 58mm;
+    padding: 4mm;
   }
 
   .receipt-overlay {

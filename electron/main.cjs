@@ -157,6 +157,8 @@ async function startLaravel(paths) {
       '-d',
       'opcache.file_cache_fallback=1',
       '-d',
+      'max_execution_time=0',
+      '-d',
       `curl.cainfo=${paths.caCert}`,
       '-d',
       `openssl.cafile=${paths.caCert}`,

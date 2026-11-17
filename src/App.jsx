@@ -42,7 +42,7 @@ function App() {
     useState('cashier')
 
   const [cashierSession, setCashierSession] =
-    useState({ id: '', shift: '' })
+    useState({ id: '', username: '', shift: '' })
 
   const [view, setView] =
     useState('pos')
@@ -75,6 +75,9 @@ function App() {
 
   const [salesLoading, setSalesLoading] =
     useState(true)
+
+  const [dataRefreshVersion, setDataRefreshVersion] =
+    useState(0)
 
 
   const flushPendingSyncQueue = useCallback(async () => {
@@ -193,6 +196,37 @@ function App() {
     }
   }, [flushPendingSyncQueue])
 
+  useEffect(() => {
+    let refreshTimeout
+    let lastRefreshAt = Date.now()
+
+    const refreshData = () => {
+      if (
+        document.visibilityState === 'hidden' ||
+        Date.now() - lastRefreshAt < 1000
+      ) {
+        return
+      }
+
+      lastRefreshAt = Date.now()
+      window.clearTimeout(refreshTimeout)
+      refreshTimeout = window.setTimeout(() => {
+        setDataRefreshVersion((version) => version + 1)
+      }, 250)
+    }
+
+    window.addEventListener('focus', refreshData)
+    window.addEventListener('online', refreshData)
+    document.addEventListener('visibilitychange', refreshData)
+
+    return () => {
+      window.clearTimeout(refreshTimeout)
+      window.removeEventListener('focus', refreshData)
+      window.removeEventListener('online', refreshData)
+      document.removeEventListener('visibilitychange', refreshData)
+    }
+  }, [])
+
 
   // =========================================================
   // LOAD SALES FROM LARAVEL / FIREBASE
@@ -302,7 +336,7 @@ function App() {
 
     loadSales()
 
-  }, [])
+  }, [dataRefreshVersion])
 
 
   // =========================================================
@@ -474,7 +508,7 @@ function App() {
 
     loadMenu()
 
-  }, [])
+  }, [dataRefreshVersion])
 
   useEffect(() => {
     setOfflineSnapshot(
@@ -721,6 +755,7 @@ function App() {
 
   function handleLogin(
     userRole,
+    cashierId = '',
     cashierUsername = '',
     cashierShift = ''
   ) {
@@ -730,7 +765,8 @@ function App() {
     )
 
     setCashierSession({
-      id: cashierUsername,
+      id: cashierId,
+      username: cashierUsername,
       shift: cashierShift,
     })
 
@@ -767,7 +803,7 @@ function App() {
       false
     )
 
-    setCashierSession({ id: '', shift: '' })
+    setCashierSession({ id: '', username: '', shift: '' })
 
     setView(
       'pos'
@@ -1350,7 +1386,8 @@ function App() {
               menuItems
             }
 
-            cashierUsername={cashierSession.id}
+            cashierId={cashierSession.id}
+            cashierUsername={cashierSession.username}
             cashierShift={cashierSession.shift}
 
             onCompleteSale={
