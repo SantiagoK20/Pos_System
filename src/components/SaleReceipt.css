@@ -1,0 +1,140 @@
+.sale-receipt {
+  box-sizing: border-box;
+  width: 80mm;
+  max-width: 100%;
+  padding: 8mm 4mm;
+  background: #fff;
+  color: #000;
+  font: 10pt / 1.45 "Courier New", monospace;
+}
+
+.sale-receipt[data-paper-width="58"] {
+  width: 58mm;
+  padding-inline: 5mm;
+}
+
+.sale-receipt .receipt-header h1 {
+  margin: 0;
+  font-size: 13pt;
+}
+
+.sale-receipt p {
+  margin: 0;
+}
+
+.sale-receipt .receipt-header,
+.sale-receipt-meta,
+.sale-receipt .receipt-footer {
+  text-align: center;
+}
+
+.sale-receipt .receipt-header {
+  margin-bottom: 4mm;
+}
+
+.sale-receipt-divider {
+  border-top: 1px dashed #000;
+  margin-block: 3mm;
+}
+
+.sale-receipt .receipt-item {
+  margin: 0 0 1.5mm;
+  break-inside: avoid;
+}
+
+.sale-receipt-item-name {
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.sale-receipt-line,
+.sale-receipt .receipt-totals > div,
+.sale-receipt .receipt-payment > div,
+.sale-receipt-customer > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2mm;
+}
+
+.sale-receipt-line > :last-child,
+.sale-receipt .receipt-totals > div > :last-child,
+.sale-receipt .receipt-payment > div > :last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sale-receipt .receipt-total,
+.sale-receipt-payment-amount {
+  font-size: 11pt;
+}
+
+.sale-receipt-meta {
+  overflow-wrap: anywhere;
+}
+
+.sale-receipt .receipt-footer {
+  margin-top: 4mm;
+}
+
+.sale-receipt-customer {
+  margin-block: 4mm;
+  break-inside: avoid;
+}
+
+.sale-receipt-customer > div {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  min-height: 5.5mm;
+}
+
+.sale-receipt-customer > div > :last-child {
+  border-bottom: 1px solid #000;
+}
+
+.sale-receipt .receipt-totals,
+.sale-receipt .receipt-payment,
+.sale-receipt .receipt-footer {
+  break-inside: avoid;
+}
+
+.sale-receipt-paper {
+  display: block;
+  margin-top: 12px;
+  color: #222;
+}
+
+@media print {
+  @page saleReceipt {
+    margin: 0;
+  }
+
+  html:has(body > .sale-receipt-overlay),
+  body:has(> .sale-receipt-overlay) {
+    margin: 0;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    display: block;
+  }
+
+  body:has(> .sale-receipt-overlay) > :not(.sale-receipt-overlay),
+  .sale-receipt-overlay .sale-receipt-paper {
+    display: none;
+  }
+
+  .sale-receipt-overlay .receipt-modal {
+    max-height: none;
+    overflow: visible;
+    border-radius: 0;
+  }
+
+  .sale-receipt,
+  .sale-receipt * {
+    visibility: visible;
+  }
+
+  .sale-receipt {
+    page: saleReceipt;
+    margin-inline: auto;
+  }
+}

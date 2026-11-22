@@ -1,0 +1,238 @@
+#root:has(.audit-page) {
+  max-width: none;
+  border-inline: 0;
+}
+
+.pos-wrapper.content-wrapper:has(> .audit-page) {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.audit-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 clamp(18px, 3vw, 40px) 28px;
+  overflow-y: auto;
+  background: #f4f4f4;
+  color: #1a1a1a;
+  color-scheme: light;
+}
+
+.audit-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 28px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e5e5;
+  text-align: center;
+}
+
+.audit-header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.audit-header p:last-child {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.audit-integrity,
+.audit-signature {
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 0.77rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.audit-integrity.valid,
+.audit-signature.valid {
+  background: #e3f5e9;
+  color: #176637;
+}
+
+.audit-integrity.invalid,
+.audit-signature.invalid {
+  background: #fde8e8;
+  color: #a42020;
+}
+
+.audit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.audit-controls label {
+  display: grid;
+  gap: 5px;
+  flex: 0 1 15rem;
+  min-width: 0;
+  max-width: 100%;
+  color: #555;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.audit-controls input,
+.audit-controls select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 400;
+}
+
+.audit-refresh {
+  min-height: 38px;
+  margin-left: auto;
+  padding: 7px 16px;
+  border: 1px solid #176637;
+  border-radius: 6px;
+  background: #1b7a3d;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.audit-refresh:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.audit-controls :focus-visible,
+.audit-remove-restriction:focus-visible {
+  outline: 2px solid #1b7a3d;
+  outline-offset: 2px;
+}
+
+.audit-error {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #efb8b8;
+  border-radius: 8px;
+  background: #fff2f2;
+  color: #922626;
+}
+
+.audit-empty {
+  padding: 28px;
+  border: 1px dashed #cbd4dc;
+  border-radius: 10px;
+  background: white;
+  color: #6b7784;
+  text-align: center;
+}
+
+.audit-table-wrap {
+  min-width: 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: white;
+}
+
+.audit-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.audit-table th:last-child {
+  width: 6.5rem;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 12px clamp(6px, 1.4vw, 14px);
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  color: #666;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.audit-table th:first-child {
+  border-top-left-radius: 9px;
+}
+
+.audit-table th:last-child {
+  border-top-right-radius: 9px;
+}
+
+.audit-table td small {
+  display: block;
+  margin-top: 3px;
+  color: #73808d;
+  font-size: 0.75rem;
+}
+
+.audit-remove-restriction {
+  display: block;
+  margin-top: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #a6cdb5;
+  border-radius: 5px;
+  background: #f2faf4;
+  color: #14532d;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.audit-remove-restriction:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 520px) {
+  .audit-page {
+    padding-inline: 10px;
+  }
+
+  .audit-controls label {
+    flex-basis: 100%;
+  }
+
+  .audit-table th:last-child {
+    width: 4.2rem;
+  }
+
+  .audit-signature {
+    padding-inline: 4px;
+    white-space: normal;
+  }
+}

@@ -1,5 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { signOut } from 'firebase/auth'
 import './App.css'
+import { auth } from './firebase'
+import { getFirebaseAuthorizationHeader, getPosSession, hasPosSession, hasTotpSession, recordAuditEvent, setTotpSession } from './audit'
+import { apiFetch, getApiUrl } from './api'
+import { applyPendingMenuChanges, canSyncAction, submitQueuedAction } from './pendingSync'
 
 import {
   enqueueSyncAction,
@@ -15,73 +21,101 @@ import POSScreen from './components/POSScreen'
 import Dashboard from './components/Dashboard'
 import ManageMenu from './components/ManageMenu'
 import ManageCashiers from './components/ManageCashiers'
-
+import KitchenDisplay, { PilotKitchenBoard } from './components/KitchenDisplay'
+import { openKitchenSession } from './kitchenSession'
+import AuditLogs from './components/AuditLogs'
+import AdministratorRequests from './components/AdministratorRequests'
+import ApiConnectionNotice from './components/ApiConnectionNotice'
 
 // =========================================================
 // API
 // =========================================================
 
-const API_URL = window.location.protocol === 'file:'
-  ? 'http://127.0.0.1:8001/api/menu'
-  : '/api/menu'
-const SALES_API_URL = window.location.protocol === 'file:'
-  ? 'http://127.0.0.1:8001/api/sales'
-  : '/api/sales'
-
-
 function App() {
+  const kitchen = new URLSearchParams(window.location.search).get('kitchen') === '1'
+  return (
+    <>
+      <ApiConnectionNotice />
+      {kitchen ? <KitchenDisplay /> : <POSApplication />}
+    </>
+  )
+}
 
+function POSApplication() {
   // =========================================================
   // LOGIN / NAVIGATION
   // =========================================================
 
-  const [loggedIn, setLoggedIn] =
-    useState(false)
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [role, setRole] = useState('cashier')
 
-  const [role, setRole] =
-    useState('cashier')
+  const [cashierSession, setCashierSession] = useState({
+    id: '',
+    username: '',
+    shift: '',
+  })
 
-  const [cashierSession, setCashierSession] =
-    useState({ id: '', username: '', shift: '' })
+  const [view, setView] = useState('pos')
 
-  const [view, setView] =
-    useState('pos')
-
+  function openKitchenLiveView() {
+    if (hasTotpSession()) {
+      setView('pilotKitchen')
+      return
+    }
+    openKitchenSession()
+  }
 
   // =========================================================
   // MENU
-  //
-  // IMPORTANT:
-  // Start EMPTY.
-  //
-  // Do NOT use INITIAL_MENU_ITEMS.
-  //
-  // Firebase is the source of truth.
   // =========================================================
 
-  const [menuItems, setMenuItems] =
-    useState([])
-
-  const [menuLoading, setMenuLoading] =
-    useState(true)
-
+  const [menuItems, setMenuItems] = useState(() => {
+    const snapshot = getOfflineSnapshot('pos_menu_items', [])
+    return Array.isArray(snapshot) ? snapshot : []
+  })
+  const [menuLoading, setMenuLoading] = useState(true)
 
   // =========================================================
   // SALES
   // =========================================================
 
-  const [salesLog, setSalesLog] =
-    useState([])
+  const [salesLog, setSalesLog] = useState(() => {
+    const snapshot = getOfflineSnapshot('pos_sales_log', [])
+    return Array.isArray(snapshot) ? snapshot : []
+  })
+  const [salesLoading, setSalesLoading] = useState(true)
 
-  const [salesLoading, setSalesLoading] =
-    useState(true)
+  const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
+  const [menuSyncConflict, setMenuSyncConflict] = useState(false)
+  const syncingQueue = useRef(false)
 
-  const [dataRefreshVersion, setDataRefreshVersion] =
-    useState(0)
+  // =========================================================
+  // AUDIT EVENTS
+  // =========================================================
 
+  const reportAuditEvent = useCallback(async (event, details = {}) => {
+    try {
+      await recordAuditEvent(event, details)
+    } catch (error) {
+      console.error(
+        'Audit event could not be submitted:',
+        event,
+        error.message
+      )
+    }
+  }, [])
+
+  // =========================================================
+  // OFFLINE QUEUE SYNCHRONIZATION
+  // =========================================================
 
   const flushPendingSyncQueue = useCallback(async () => {
-    if (!navigator.onLine) {
+    if (!navigator.onLine || syncingQueue.current) {
+      return
+    }
+
+    const session = getPosSession()
+    if (!session) {
       return
     }
 
@@ -91,110 +125,191 @@ function App() {
       return
     }
 
-    for (const action of [...pendingActions]) {
-      try {
-        const requestOptions = {
-          method: action.method || 'POST',
-          headers: {
-            Accept: 'application/json',
-          },
-        }
+    syncingQueue.current = true
+    try {
+      const conflictingMenuIds = new Set()
+      for (const action of pendingActions) {
+        if (action.type !== 'sale' && conflictingMenuIds.has(action.payload?.id ?? action.payload?.clientMenuId)) continue
+        try {
+          if (!canSyncAction(action, session.uid)) continue
 
-        if (action.payload !== undefined) {
-          requestOptions.headers['Content-Type'] = 'application/json'
-          requestOptions.body = JSON.stringify(action.payload)
-        }
+          const authorization = await getFirebaseAuthorizationHeader(session)
+          const result = await submitQueuedAction(action, authorization)
 
-        const response = await fetch(action.endpoint, requestOptions)
-        const text = await response.text()
+          removePendingSyncAction(action.id)
 
-        let result = {}
+          // -----------------------------------------------------
+          // SYNC SALE
+          // -----------------------------------------------------
 
-        if (text) {
-          try {
-            result = JSON.parse(text)
-          } catch {
-            result = { message: text }
+          if (action.type === 'sale' && result.data) {
+            setSalesLog((prev) => {
+              const nextSales = prev.some(
+                (item) => String(item.clientSaleId ?? item.id) === String(result.data.id)
+              )
+                ? prev.map((item) =>
+                    String(item.clientSaleId ?? item.id) === String(result.data.id)
+                      ? result.data
+                      : item
+                  )
+                : [...prev, result.data]
+
+              setOfflineSnapshot('pos_sales_log', nextSales)
+
+              return nextSales
+            })
           }
+
+          // -----------------------------------------------------
+          // SYNC NEW MENU ITEM
+          // -----------------------------------------------------
+
+          if (action.type === 'menu-add' && result.data) {
+            setMenuItems((prev) => {
+              const nextItems = prev.some(
+                (item) => String(item.id) === String(result.data.id)
+              )
+                ? prev.map((item) =>
+                    String(item.id) === String(result.data.id)
+                      ? result.data
+                      : item
+                  )
+                : [...prev, result.data]
+
+              setOfflineSnapshot('pos_menu_items', nextItems)
+
+              return nextItems
+            })
+          }
+
+          // -----------------------------------------------------
+          // SYNC EDITED MENU ITEM
+          // -----------------------------------------------------
+
+          if (action.type === 'menu-edit' && result.data) {
+            setMenuItems((prev) => {
+              const nextItems = prev.map((item) =>
+                String(item.id) === String(action.payload.id)
+                  ? result.data
+                  : item
+              )
+
+              setOfflineSnapshot('pos_menu_items', nextItems)
+
+              return nextItems
+            })
+          }
+
+          // -----------------------------------------------------
+          // SYNC DELETED MENU ITEM
+          // -----------------------------------------------------
+
+          if (action.type === 'menu-delete' && action.payload?.id) {
+            setMenuItems((prev) => {
+              const nextItems = prev.filter(
+                (item) => String(item.id) !== String(action.payload.id)
+              )
+
+              setOfflineSnapshot('pos_menu_items', nextItems)
+
+              return nextItems
+            })
+          }
+        } catch (error) {
+          console.error('Queued sync failed:', error)
+          if (error.status === 409 && action.type !== 'sale') {
+            conflictingMenuIds.add(action.payload?.id ?? action.payload?.clientMenuId)
+            continue
+          }
+          break
         }
-
-        if (!response.ok || (result.success !== undefined && result.success === false)) {
-          throw new Error(result.message || `Sync failed (${response.status})`)
-        }
-
-        removePendingSyncAction(action.id)
-
-        if (action.type === 'sale' && result.data) {
-          setSalesLog((prev) => {
-            const nextSales = prev.some((item) => String(item.id) === String(result.data.id))
-              ? prev.map((item) => (String(item.id) === String(result.data.id) ? result.data : item))
-              : [...prev, result.data]
-
-            setOfflineSnapshot('pos_sales_log', nextSales)
-            return nextSales
-          })
-        }
-
-        if (action.type === 'menu-add' && result.data) {
-          setMenuItems((prev) => {
-            const nextItems = prev.some((item) => String(item.id) === String(result.data.id))
-              ? prev.map((item) => (String(item.id) === String(result.data.id) ? result.data : item))
-              : [...prev, result.data]
-
-            setOfflineSnapshot('pos_menu_items', nextItems)
-            return nextItems
-          })
-        }
-
-        if (action.type === 'menu-edit' && result.data) {
-          setMenuItems((prev) => {
-            const nextItems = prev.map((item) =>
-              String(item.id) === String(action.payload.id) ? result.data : item
-            )
-
-            setOfflineSnapshot('pos_menu_items', nextItems)
-            return nextItems
-          })
-        }
-
-        if (action.type === 'menu-delete' && action.payload?.id) {
-          setMenuItems((prev) => {
-            const nextItems = prev.filter((item) => String(item.id) !== String(action.payload.id))
-            setOfflineSnapshot('pos_menu_items', nextItems)
-            return nextItems
-          })
-        }
-
-      } catch (error) {
-        console.error('Queued sync failed:', error)
-        break
       }
+      setMenuSyncConflict(conflictingMenuIds.size > 0)
+    } finally {
+      syncingQueue.current = false
     }
   }, [])
 
+  // =========================================================
+  // RESTORE OFFLINE DATA AND LISTEN FOR INTERNET
+  // =========================================================
 
   useEffect(() => {
-    const savedSales = getOfflineSnapshot('pos_sales_log', [])
-    if (Array.isArray(savedSales) && savedSales.length > 0) {
-      setSalesLog(savedSales)
-    }
+    if (!loggedIn) return
+    window.addEventListener('online', flushPendingSyncQueue)
+    const retry = window.setInterval(flushPendingSyncQueue, 15000)
 
-    const savedMenu = getOfflineSnapshot('pos_menu_items', [])
-    if (Array.isArray(savedMenu) && savedMenu.length > 0) {
-      setMenuItems(savedMenu)
-    }
-
-    const handleOnline = () => {
-      flushPendingSyncQueue()
-    }
-
-    window.addEventListener('online', handleOnline)
     flushPendingSyncQueue()
 
     return () => {
-      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('online', flushPendingSyncQueue)
+      window.clearInterval(retry)
     }
-  }, [flushPendingSyncQueue])
+  }, [flushPendingSyncQueue, loggedIn])
+
+  // =========================================================
+  // KITCHEN ORDER SYNCHRONIZATION
+  // =========================================================
+
+  useEffect(() => {
+    if (!loggedIn) {
+      return undefined
+    }
+
+    let active = true
+    let syncing = false
+
+    const syncPendingKitchenOrders = async () => {
+      if (!active || !navigator.onLine || syncing || !hasPosSession()) {
+        return
+      }
+
+      syncing = true
+
+      try {
+        const response = await apiFetch(getApiUrl('kitchen/sync-pending'), {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: await getFirebaseAuthorizationHeader(),
+          },
+        })
+
+        if (!response.ok) {
+          console.warn(
+            'Pending kitchen sync request failed:',
+            response.status
+          )
+        }
+      } catch (error) {
+        console.warn(
+          'Pending kitchen sync request failed:',
+          error.message
+        )
+      } finally {
+        syncing = false
+      }
+    }
+
+    const intervalId = window.setInterval(
+      syncPendingKitchenOrders,
+      60000
+    )
+
+    window.addEventListener('online', syncPendingKitchenOrders)
+
+    syncPendingKitchenOrders()
+
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+      window.removeEventListener('online', syncPendingKitchenOrders)
+    }
+  }, [loggedIn])
+
+  // =========================================================
+  // REFRESH DATA WHEN WINDOW BECOMES ACTIVE
+  // =========================================================
 
   useEffect(() => {
     let refreshTimeout
@@ -209,7 +324,9 @@ function App() {
       }
 
       lastRefreshAt = Date.now()
+
       window.clearTimeout(refreshTimeout)
+
       refreshTimeout = window.setTimeout(() => {
         setDataRefreshVersion((version) => version + 1)
       }, 250)
@@ -221,533 +338,349 @@ function App() {
 
     return () => {
       window.clearTimeout(refreshTimeout)
+
       window.removeEventListener('focus', refreshData)
       window.removeEventListener('online', refreshData)
       document.removeEventListener('visibilitychange', refreshData)
     }
   }, [])
 
-
   // =========================================================
   // LOAD SALES FROM LARAVEL / FIREBASE
   // =========================================================
 
+  const autoRefreshSales = role === 'admin' && view === 'dashboard'
+
   useEffect(() => {
+    if (!loggedIn) return
+
+    const controller = new AbortController()
+    let refreshTimeout
 
     async function loadSales() {
-
       try {
-
-        const response =
-          await fetch(
-            SALES_API_URL
-          )
-
-
-        if (!response.ok) {
-
-          throw new Error(
-            'Failed to load sales'
-          )
+        const headers = {
+          Accept: 'application/json',
         }
 
+        if (hasPosSession()) {
+          headers.Authorization = await getFirebaseAuthorizationHeader()
+        }
 
-        const result =
-          await response.json()
+        const response = await apiFetch(getApiUrl('sales'), {
+          headers,
+          signal: controller.signal,
+          cache: 'no-store',
+        })
 
+        if (!response.ok) {
+          throw new Error('Failed to load sales')
+        }
 
-        if (
-          result.success
-        ) {
+        const result = await response.json()
+        if (controller.signal.aborted) return
 
-          const firebaseSales =
-            result.data
-
-
-          // -------------------------------------------------
-          // FIREBASE OBJECT
-          // -------------------------------------------------
+        if (result.success) {
+          const firebaseSales = result.data
 
           if (
             firebaseSales &&
-            typeof firebaseSales ===
-            'object'
+            typeof firebaseSales === 'object'
           ) {
-
-            const sales =
-              Object.entries(
-                firebaseSales
-              ).map(
-                (
-                  [
-                    id,
-                    sale,
-                  ]
-                ) => ({
-
-                  id,
-
-                  ...sale,
-
-                })
-              )
-
-
-            setSalesLog(
-              sales
+            const sales = Object.entries(firebaseSales).map(
+              ([id, sale]) => ({
+                id,
+                ...sale,
+              })
             )
 
+            const ids = new Set(sales.map((sale) => String(sale.id)))
+            setSalesLog([
+              ...sales,
+              ...getPendingSyncQueue()
+                .filter(({ type, payload }) => type === 'sale' && payload &&
+                  !ids.has(String(payload.clientSaleId ?? payload.id)))
+                .map(({ payload, createdAt }) => ({ ...payload, queuedAt: createdAt, syncStatus: 'pending' })),
+            ])
           } else {
-
-            setSalesLog(
-              []
-            )
+            setSalesLog([])
           }
-
         } else {
-
-          setSalesLog(
-            []
-          )
+          setSalesLog([])
         }
-
       } catch (error) {
-
-        console.error(
-          'Error loading sales:',
-          error
-        )
+        if (controller.signal.aborted) return
+        console.error('Error loading sales:', error)
 
         const savedSales = getOfflineSnapshot('pos_sales_log', [])
+
         setSalesLog(
           Array.isArray(savedSales)
             ? savedSales
             : []
         )
-
       } finally {
-
-        setSalesLoading(
-          false
-        )
+        if (!controller.signal.aborted) {
+          setSalesLoading(false)
+          if (autoRefreshSales) {
+            refreshTimeout = window.setTimeout(loadSales, 5000)
+          }
+        }
       }
     }
 
-
     loadSales()
-
-  }, [dataRefreshVersion])
-
+    return () => {
+      controller.abort()
+      window.clearTimeout(refreshTimeout)
+    }
+  }, [dataRefreshVersion, loggedIn, autoRefreshSales])
 
   // =========================================================
   // LOCAL STORAGE SALES COPY
-  //
-  // This is NOT used as the source for loading sales.
-  // Firebase remains the source of truth.
   // =========================================================
 
   useEffect(() => {
-    setOfflineSnapshot(
-      'pos_sales_log',
-      salesLog
-    )
+    setOfflineSnapshot('pos_sales_log', salesLog)
   }, [salesLog])
-
 
   // =========================================================
   // LOAD MENU FROM LARAVEL / FIREBASE
-  //
-  // IMPORTANT:
-  //
-  // There is NO fallback to INITIAL_MENU_ITEMS.
-  //
-  // If Firebase has no items:
-  // menuItems = []
-  //
-  // If Firebase request fails:
-  // menuItems = []
-  //
-  // This prevents deleted/local items from appearing.
   // =========================================================
 
   useEffect(() => {
+    if (!loggedIn) return
 
+    const controller = new AbortController()
+    let loading = false
     async function loadMenu() {
-
+      if (loading) return
+      loading = true
       try {
-
-        const response =
-          await fetch(
-            API_URL
-          )
-
+        const response = await apiFetch(getApiUrl('menu'), {
+          headers: { Accept: 'application/json', Authorization: await getFirebaseAuthorizationHeader() },
+          signal: controller.signal,
+        })
 
         if (!response.ok) {
-
-          throw new Error(
-            'Failed to load menu'
-          )
+          throw new Error('Failed to load menu')
         }
 
+        const result = await response.json()
 
-        const result =
-          await response.json()
-
-
-        console.log(
-          'Menu API result:',
-          result
-        )
-
-
-        if (
-          result.success
-        ) {
-
-          const firebaseMenu =
-            result.data
-
-
-          // -------------------------------------------------
-          // FIREBASE ARRAY
-          // -------------------------------------------------
-
-          if (
-            Array.isArray(
-              firebaseMenu
-            )
-          ) {
-
-            setMenuItems(
-              firebaseMenu
-            )
-
-          }
-
-          // -------------------------------------------------
-          // FIREBASE OBJECT
-          // -------------------------------------------------
-
-          else if (
-            firebaseMenu &&
-            typeof firebaseMenu ===
-            'object'
-          ) {
-
-            const items =
-              Object.entries(
-                firebaseMenu
-              ).map(
-                (
-                  [
-                    id,
-                    item,
-                  ]
-                ) => ({
-
-                  id,
-
-                  ...item,
-
-                })
-              )
-
-
-            setMenuItems(
-              items
-            )
-
-          }
-
-          // -------------------------------------------------
-          // EMPTY / NULL FIREBASE
-          // -------------------------------------------------
-
-          else {
-
-            setMenuItems(
-              []
-            )
-          }
-
-        } else {
-
-          // Firebase/API says no menu
-          setMenuItems(
-            []
-          )
-        }
-
+        if (controller.signal.aborted) return
+        if (!result.success) throw new Error('Failed to load menu')
+        const items = Object.entries(result.data ?? {}).map(([id, item]) => ({
+          ...item,
+          id: item.id ?? id,
+        }))
+        setMenuItems(applyPendingMenuChanges(items, getPendingSyncQueue()))
       } catch (error) {
-
-        console.error(
-          'Error loading menu:',
-          error
-        )
-
-
-        // -----------------------------------------------------
-        // Fall back to the last synced offline snapshot.
-        // -----------------------------------------------------
+        if (controller.signal.aborted) return
+        console.error('Error loading menu:', error)
 
         const savedMenu = getOfflineSnapshot('pos_menu_items', [])
+
         setMenuItems(
           Array.isArray(savedMenu)
             ? savedMenu
             : []
         )
-
       } finally {
-
-        setMenuLoading(
-          false
-        )
+        loading = false
+        if (!controller.signal.aborted) setMenuLoading(false)
       }
     }
 
-
     loadMenu()
-
-  }, [dataRefreshVersion])
+    const refresh = window.setInterval(loadMenu, 15000)
+    return () => {
+      controller.abort()
+      window.clearInterval(refresh)
+    }
+  }, [dataRefreshVersion, loggedIn])
 
   useEffect(() => {
-    setOfflineSnapshot(
-      'pos_menu_items',
-      menuItems
-    )
+    setOfflineSnapshot('pos_menu_items', menuItems)
   }, [menuItems])
-
 
   // =========================================================
   // RECORD SALE
   // =========================================================
 
-  async function recordSale(
-    sale
-  ) {
+  async function recordSale(sale) {
+    let response
+    const session = getPosSession()
+    if (!session) return { status: 'failed', message: 'You must sign in before recording sales.' }
 
+    // Send sale to Laravel.
     try {
+      if (!navigator.onLine) throw new Error('The terminal is offline.')
+      const authorization = await getFirebaseAuthorizationHeader(session)
+      response = await apiFetch(getApiUrl('sales'), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: authorization,
+        },
+        body: JSON.stringify(sale),
+      })
+      if (response.status >= 500) throw new Error(`The sales API returned HTTP ${response.status}.`)
+    } catch (error) {
+      if (session !== getPosSession()) {
+        return { status: 'failed', message: 'The POS session changed. Please try again.' }
+      }
+      console.error('Sales API connection failed:', error)
 
-      console.log(
-        'Sending sale to Firebase:',
-        sale
-      )
+      // Save sale to the existing offline queue.
+      const queuedAction = enqueueSyncAction({
+        type: 'sale',
+        ownerUid: session.uid,
+        method: 'POST',
+        payload: sale,
+      })
 
+      if (!queuedAction) {
+        return {
+          status: 'failed',
+          message:
+            'Connection failed and the sale could not be saved locally. Your cart has been preserved.',
+        }
+      }
 
-      const response =
-        await fetch(
-          SALES_API_URL,
-          {
-            method:
-              'POST',
+      const queuedSale = {
+        ...sale,
+        queuedAt: new Date().toISOString(),
+        syncStatus: 'pending',
+      }
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body:
-              JSON.stringify(
-                sale
-              ),
-          }
+      setSalesLog((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) => item.clientSaleId === sale.clientSaleId
         )
 
+        const nextSales = [...prev]
 
-      const text =
-        await response.text()
+        if (existingIndex >= 0) {
+          nextSales[existingIndex] = queuedSale
+        } else {
+          nextSales.push(queuedSale)
+        }
 
+        setOfflineSnapshot('pos_sales_log', nextSales)
 
-      console.log(
-        'Sales API response status:',
-        response.status
-      )
+        return nextSales
+      })
 
+      return {
+        status: 'queued',
+        data: queuedSale,
+      }
+    }
 
-      console.log(
-        'Sales API raw response:',
-        text
-      )
+    // Process Laravel response.
+    try {
+      const text = await response.text()
 
+      console.log('Sales API response status:', response.status)
 
       let result
 
-
       try {
-
-        result =
-          JSON.parse(
-            text
-          )
-
+        result = JSON.parse(text)
       } catch {
-
-        throw new Error(
-          'Sales API did not return valid JSON. Response: ' +
-          text
-        )
+        throw new Error('Sales API did not return valid JSON.')
       }
 
-
-      if (
-        !response.ok ||
-        !result.success
-      ) {
-
-        throw new Error(
-          result.message ||
-          `Sales API error (HTTP ${response.status})`
-        )
+      if (!response.ok || !result.success) {
+        return {
+          status: 'failed',
+          message:
+            result.message || `Sales API error (HTTP ${response.status})`,
+        }
       }
 
+      const savedSale = result.data
 
-      console.log(
-        'Sale successfully saved to Firebase:',
-        result.data
-      )
+      setSalesLog((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) =>
+            (
+              sale.clientSaleId &&
+              item.clientSaleId === sale.clientSaleId
+            ) ||
+            String(item.id) === String(savedSale.id)
+        )
 
+        const nextSales = [...prev]
 
-      // ---------------------------------------------------------
-      // ADD SALE TO DASHBOARD IMMEDIATELY
-      // ---------------------------------------------------------
+        if (existingIndex >= 0) {
+          nextSales[existingIndex] = savedSale
+        } else {
+          nextSales.push(savedSale)
+        }
 
-      setSalesLog(
-        (prev) => [
-          ...prev,
-          result.data,
-        ]
-      )
+        setOfflineSnapshot('pos_sales_log', nextSales)
 
+        return nextSales
+      })
 
-      return true
-
+      return {
+        status: 'saved',
+        data: savedSale,
+      }
     } catch (error) {
-
       console.error(
-        'FULL RECORD SALE ERROR:',
+        'Sales API response could not be processed:',
         error
       )
 
-
-      const isOffline =
-        !navigator.onLine ||
-        error.message.includes('Failed to fetch') ||
-        error.message.includes('Network')
-
-      if (isOffline) {
-        const queuedSale = {
-          ...sale,
-          queuedAt: new Date().toISOString(),
-          syncStatus: 'pending',
-        }
-
-        enqueueSyncAction({
-          type: 'sale',
-          endpoint: SALES_API_URL,
-          method: 'POST',
-          payload: sale,
-        })
-
-        setSalesLog((prev) => {
-          const nextSales = [...prev, queuedSale]
-          setOfflineSnapshot('pos_sales_log', nextSales)
-          return nextSales
-        })
-
-        alert(
-          'You are offline. This sale was saved locally and will sync automatically when the connection is restored.'
-        )
-
-        return false
+      return {
+        status: 'failed',
+        message:
+          'The server response could not be processed. Your cart has been preserved. Please retry.',
       }
-
-      alert(
-        'Sale could not be saved.\n\n' +
-        error.message
-      )
-
-      return false
     }
   }
-
 
   // =========================================================
   // RESET SALES
   // =========================================================
 
   async function resetSalesData() {
-
-    const confirmed =
-      window.confirm(
-        'This will permanently clear all recorded sales. Continue?'
-      )
-
+    const confirmed = window.confirm(
+      'This will permanently clear all recorded sales. Continue?'
+    )
 
     if (!confirmed) {
       return
     }
 
-
     try {
+      const response = await apiFetch(getApiUrl('sales'), {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          Authorization: await getFirebaseAuthorizationHeader(),
+        },
+      })
 
-      const response =
-        await fetch(
-          SALES_API_URL,
-          {
-            method:
-              'DELETE',
+      const data = await response.json()
 
-            headers: {
-              Accept:
-                'application/json',
-            },
-          }
-        )
-
-
-      const data =
-        await response.json()
-
-
-      if (
-        !response.ok ||
-        data.success === false
-      ) {
-
-        throw new Error(
-          data.message ||
-          'Failed to reset sales.'
-        )
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || 'Failed to reset sales.')
       }
 
+      setSalesLog([])
 
-      // ---------------------------------------------------------
-      // CLEAR REACT STATE AFTER FIREBASE SUCCESS
-      // ---------------------------------------------------------
-
-      setSalesLog(
-        []
-      )
-
-
-      alert(
-        'All sales data has been cleared successfully.'
-      )
-
+      alert('All sales data has been cleared successfully.')
     } catch (error) {
+      console.error('Reset sales error:', error)
 
-      console.error(
-        'Reset sales error:',
-        error
-      )
-
-
-      alert(
-        `Failed to reset sales data: ${error.message}`
-      )
+      alert(`Failed to reset sales data: ${error.message}`)
     }
   }
-
 
   // =========================================================
   // LOGIN
@@ -759,10 +692,7 @@ function App() {
     cashierUsername = '',
     cashierShift = ''
   ) {
-
-    setRole(
-      userRole
-    )
+    setRole(userRole)
 
     setCashierSession({
       id: cashierId,
@@ -770,158 +700,100 @@ function App() {
       shift: cashierShift,
     })
 
-    setLoggedIn(
-      true
-    )
+    setLoggedIn(true)
 
+    setDataRefreshVersion((version) => version + 1)
 
-    if (
-      userRole ===
-      'admin'
-    ) {
-
-      setView(
-        'dashboard'
-      )
-
+    if (userRole === 'admin') {
+      setView('dashboard')
     } else {
-
-      setView(
-        'pos'
-      )
+      setView('pos')
     }
   }
-
 
   // =========================================================
   // LOGOUT
   // =========================================================
 
-  function handleLogout() {
+  async function handleLogout() {
+    if (hasTotpSession()) {
+      try {
+        await recordAuditEvent('logout')
+      } catch {
+        alert('Could not confirm sign-out. Check your connection and try again.')
+        return
+      }
+    } else {
+      await reportAuditEvent('logout')
+    }
+    setTotpSession(null)
 
-    setLoggedIn(
-      false
-    )
+    try {
+      await signOut(auth)
+    } catch (error) {
+      console.error('Firebase sign-out failed:', error.message)
+    }
 
-    setCashierSession({ id: '', username: '', shift: '' })
+    setLoggedIn(false)
 
-    setView(
-      'pos'
-    )
+    setCashierSession({
+      id: '',
+      username: '',
+      shift: '',
+    })
+
+    setView('pos')
   }
-
 
   // =========================================================
   // ADD MENU ITEM
   // =========================================================
 
-  async function addMenuItem(
-    item
-  ) {
-
+  async function addMenuItem(item) {
+    const payload = { ...item, clientMenuId: crypto.randomUUID() }
     try {
+      console.log('Sending menu item:', item)
 
-      console.log(
-        'Sending menu item:',
-        item
-      )
+      const response = await apiFetch(getApiUrl('menu'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: await getFirebaseAuthorizationHeader(),
+        },
+        body: JSON.stringify(payload),
+      })
 
+      const text = await response.text()
 
-      const response =
-        await fetch(
-          API_URL,
-          {
-            method:
-              'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body:
-              JSON.stringify(
-                item
-              ),
-          }
-        )
-
-
-      const text =
-        await response.text()
-
-
-      console.log(
-        'Menu API response status:',
-        response.status
-      )
-
-
-      console.log(
-        'Menu API raw response:',
-        text
-      )
-
+      console.log('Menu API response status:', response.status)
+      console.log('Menu API raw response:', text)
 
       let result
 
-
       try {
-
-        result =
-          JSON.parse(
-            text
-          )
-
+        result = JSON.parse(text)
       } catch {
-
         throw new Error(
-          'Menu API did not return valid JSON. Response: ' +
-          text
+          'Menu API did not return valid JSON. Response: ' + text
         )
       }
 
-
-      if (
-        !response.ok ||
-        !result.success
-      ) {
-
+      if (!response.ok || !result.success) {
         throw new Error(
-          result.message ||
-          `Menu API error (HTTP ${response.status})`
+          result.message || `Menu API error (HTTP ${response.status})`
         )
       }
 
+      console.log('Menu item successfully added:', result.data)
 
-      console.log(
-        'Menu item successfully added:',
-        result.data
-      )
+      setMenuItems((prev) => [
+        ...prev,
+        result.data,
+      ])
 
-
-      // ---------------------------------------------------------
-      // ADD ONLY THE ITEM RETURNED BY FIREBASE/LARAVEL
-      // ---------------------------------------------------------
-
-      setMenuItems(
-        (prev) => [
-          ...prev,
-          result.data,
-        ]
-      )
-
-
-      alert(
-        'Menu item added successfully!'
-      )
-
+      alert('Menu item added successfully!')
     } catch (error) {
-
-      console.error(
-        'FULL ADD MENU ERROR:',
-        error
-      )
+      console.error('FULL ADD MENU ERROR:', error)
 
       const isOffline =
         !navigator.onLine ||
@@ -931,20 +803,23 @@ function App() {
       if (isOffline) {
         const queuedItem = {
           ...item,
+          id: payload.clientMenuId,
           queuedAt: new Date().toISOString(),
           syncStatus: 'pending',
         }
 
-        enqueueSyncAction({
+        if (!enqueueSyncAction({
           type: 'menu-add',
-          endpoint: API_URL,
+          ownerUid: getPosSession()?.uid,
           method: 'POST',
-          payload: item,
-        })
+          payload,
+        })) return alert('Could not save the menu change on this terminal.')
 
         setMenuItems((prev) => {
           const nextItems = [...prev, queuedItem]
+
           setOfflineSnapshot('pos_menu_items', nextItems)
+
           return nextItems
         })
 
@@ -955,132 +830,64 @@ function App() {
         return
       }
 
-      alert(
-        'Failed to add menu item.\n\n' +
-        error.message
-      )
+      alert('Failed to add menu item.\n\n' + error.message)
     }
   }
-
 
   // =========================================================
   // EDIT MENU ITEM
   // =========================================================
 
-  async function editMenuItem(
-    id,
-    updated
-  ) {
-
+  async function editMenuItem(current, updated) {
+    const { id } = current
+    const expected = { name: current.name, category: current.category, price: current.price }
+    const payload = { id, ...updated, expected }
     try {
+      console.log('Updating menu item:', id, updated)
 
-      console.log(
-        'Updating menu item:',
-        id,
-        updated
-      )
+      const response = await apiFetch(getApiUrl('menu'), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: await getFirebaseAuthorizationHeader(),
+        },
+        body: JSON.stringify(payload),
+      })
 
+      const text = await response.text()
 
-      const response =
-        await fetch(
-          API_URL,
-          {
-            method:
-              'PUT',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body:
-              JSON.stringify({
-                id,
-                ...updated,
-              }),
-          }
-        )
-
-
-      const text =
-        await response.text()
-
-
-      console.log(
-        'Menu edit response status:',
-        response.status
-      )
-
-
-      console.log(
-        'Menu edit raw response:',
-        text
-      )
-
+      console.log('Menu edit response status:', response.status)
+      console.log('Menu edit raw response:', text)
 
       let result
 
-
       try {
-
-        result =
-          JSON.parse(
-            text
-          )
-
+        result = JSON.parse(text)
       } catch {
-
         throw new Error(
-          'Menu API did not return valid JSON. Response: ' +
-          text
+          'Menu API did not return valid JSON. Response: ' + text
         )
       }
 
-
-      if (
-        !response.ok ||
-        !result.success
-      ) {
-
+      if (!response.ok || !result.success) {
         throw new Error(
-          result.message ||
-          `Menu API error (HTTP ${response.status})`
+          result.message || `Menu API error (HTTP ${response.status})`
         )
       }
 
+      console.log('Menu item successfully updated:', result.data)
 
-      console.log(
-        'Menu item successfully updated:',
-        result.data
+      setMenuItems((prev) =>
+        prev.map((item) =>
+          String(item.id) === String(id)
+            ? result.data
+            : item
+        )
       )
 
-
-      setMenuItems(
-        (prev) =>
-          prev.map(
-            (item) =>
-              String(
-                item.id
-              ) ===
-                String(
-                  id
-                )
-                ? result.data
-                : item
-          )
-      )
-
-
-      alert(
-        'Menu item updated successfully!'
-      )
-
+      alert('Menu item updated successfully!')
     } catch (error) {
-
-      console.error(
-        'FULL EDIT MENU ERROR:',
-        error
-      )
+      console.error('FULL EDIT MENU ERROR:', error)
 
       const isOffline =
         !navigator.onLine ||
@@ -1095,16 +902,22 @@ function App() {
           syncStatus: 'pending',
         }
 
-        enqueueSyncAction({
+        if (!enqueueSyncAction({
           type: 'menu-edit',
-          endpoint: API_URL,
+          ownerUid: getPosSession()?.uid,
           method: 'PUT',
-          payload: { id, ...updated },
-        })
+          payload,
+        })) return alert('Could not save the menu change on this terminal.')
 
         setMenuItems((prev) => {
-          const nextItems = prev.map((item) => (String(item.id) === String(id) ? updatedItem : item))
+          const nextItems = prev.map((item) =>
+            String(item.id) === String(id)
+              ? updatedItem
+              : item
+          )
+
           setOfflineSnapshot('pos_menu_items', nextItems)
+
           return nextItems
         })
 
@@ -1115,125 +928,60 @@ function App() {
         return
       }
 
-      alert(
-        'Failed to edit menu item.\n\n' +
-        error.message
-      )
+      alert('Failed to edit menu item.\n\n' + error.message)
     }
   }
-
 
   // =========================================================
   // DELETE MENU ITEM
   // =========================================================
 
-  async function deleteMenuItem(
-    id
-  ) {
-
+  async function deleteMenuItem(current) {
+    const { id } = current
+    const expected = { name: current.name, category: current.category, price: current.price }
+    const payload = { id, expected }
     try {
+      console.log('Deleting menu item:', id)
 
-      console.log(
-        'Deleting menu item:',
-        id
-      )
+      const response = await apiFetch(getApiUrl('menu'), {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: await getFirebaseAuthorizationHeader(),
+        },
+        body: JSON.stringify(payload),
+      })
 
+      const text = await response.text()
 
-      const response =
-        await fetch(
-          API_URL,
-          {
-            method:
-              'DELETE',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body:
-              JSON.stringify({
-                id,
-              }),
-          }
-        )
-
-
-      const text =
-        await response.text()
-
-
-      console.log(
-        'Menu delete response status:',
-        response.status
-      )
-
-
-      console.log(
-        'Menu delete raw response:',
-        text
-      )
-
+      console.log('Menu delete response status:', response.status)
+      console.log('Menu delete raw response:', text)
 
       let result
 
-
       try {
-
-        result =
-          JSON.parse(
-            text
-          )
-
+        result = JSON.parse(text)
       } catch {
-
         throw new Error(
-          'Menu API did not return valid JSON. Response: ' +
-          text
+          'Menu API did not return valid JSON. Response: ' + text
         )
       }
 
-
-      if (
-        !response.ok ||
-        !result.success
-      ) {
-
+      if (!response.ok || !result.success) {
         throw new Error(
-          result.message ||
-          `Menu API error (HTTP ${response.status})`
+          result.message || `Menu API error (HTTP ${response.status})`
         )
       }
 
-
-      // ---------------------------------------------------------
-      // REMOVE ONLY FROM CURRENT REACT MENU
-      // ---------------------------------------------------------
-
-      setMenuItems(
-        (prev) =>
-          prev.filter(
-            (item) =>
-              String(
-                item.id
-              ) !==
-              String(
-                id
-              )
-          )
+      setMenuItems((prev) =>
+        prev.filter(
+          (item) => String(item.id) !== String(id)
+        )
       )
 
-
-      alert(
-        'Menu item deleted successfully!'
-      )
-
+      alert('Menu item deleted successfully!')
     } catch (error) {
-
-      console.error(
-        'FULL DELETE MENU ERROR:',
-        error
-      )
+      console.error('FULL DELETE MENU ERROR:', error)
 
       const isOffline =
         !navigator.onLine ||
@@ -1241,16 +989,20 @@ function App() {
         error.message.includes('Network')
 
       if (isOffline) {
-        enqueueSyncAction({
+        if (!enqueueSyncAction({
           type: 'menu-delete',
-          endpoint: API_URL,
+          ownerUid: getPosSession()?.uid,
           method: 'DELETE',
-          payload: { id },
-        })
+          payload,
+        })) return alert('Could not save the menu change on this terminal.')
 
         setMenuItems((prev) => {
-          const nextItems = prev.filter((item) => String(item.id) !== String(id))
+          const nextItems = prev.filter(
+            (item) => String(item.id) !== String(id)
+          )
+
           setOfflineSnapshot('pos_menu_items', nextItems)
+
           return nextItems
         })
 
@@ -1261,145 +1013,99 @@ function App() {
         return
       }
 
-      alert(
-        'Failed to delete menu item.\n\n' +
-        error.message
-      )
+      alert('Failed to delete menu item.\n\n' + error.message)
     }
   }
-
 
   // =========================================================
   // LOGIN SCREEN
   // =========================================================
 
   if (!loggedIn) {
-
     return (
-      <LoginScreen
-        onLogin={
-          handleLogin
-        }
-      />
+      <LoginScreen onLogin={handleLogin} />
     )
   }
-
 
   // =========================================================
   // MAIN APPLICATION
   // =========================================================
 
   return (
-
     <div className={`pos-wrapper${view !== 'pos' ? ' content-wrapper' : ''}`}>
+      {menuSyncConflict && (
+        <div className="pos-connection-notice" role="status">
+          A queued menu change conflicts with another terminal. The change is still saved locally.
+        </div>
+      )}
 
-
-      {/* =================================================
-                TOP BAR
-            ================================================= */}
+      {/* TOP BAR */}
 
       <TopBar
         role={role}
+        totpSession={hasTotpSession()}
         view={view}
-        onNavigate={
-          setView
-        }
-        onLogout={
-          handleLogout
-        }
+        onNavigate={setView}
+        onOpenKitchen={openKitchenLiveView}
+        onLogout={handleLogout}
       />
 
+      {view === 'pilotKitchen' && role === 'admin' && hasTotpSession() && <PilotKitchenBoard />}
 
-      {/* =================================================
-                DASHBOARD / ANALYTICS
-            ================================================= */}
+      {/* DASHBOARD / ANALYTICS */}
 
-      {view ===
-        'dashboard' && (
+      {view === 'dashboard' && (
+        <Dashboard
+          menuItems={menuItems}
+          salesLog={salesLog}
+          onResetSales={resetSalesData}
+        />
+      )}
 
-          <Dashboard
-            menuItems={
-              menuItems
-            }
+      {/* MANAGE MENU */}
 
-            salesLog={
-              salesLog
-            }
+      {view === 'manageMenu' && (
+        <ManageMenu
+          menuItems={menuItems}
+          onAdd={addMenuItem}
+          onEdit={editMenuItem}
+          onDelete={deleteMenuItem}
+        />
+      )}
 
-            onResetSales={
-              resetSalesData
-            }
-          />
+      {/* MANAGE CASHIERS */}
 
-        )}
+      {view === 'manageCashiers' && (
+        <ManageCashiers
+          salesLog={salesLog}
+          onAuditEvent={reportAuditEvent}
+        />
+      )}
 
+      {/* AUDIT LOGS */}
 
-      {/* =================================================
-                MANAGE MENU
-            ================================================= */}
+      {view === 'auditLogs' && role === 'admin' && (
+        <AuditLogs />
+      )}
+      {view === 'administratorRequests' && role === 'admin' && (
+        <AdministratorRequests />
+      )}
 
-      {view ===
-        'manageMenu' && (
+      {/* POS */}
 
-          <ManageMenu
-            menuItems={
-              menuItems
-            }
-
-            onAdd={
-              addMenuItem
-            }
-
-            onEdit={
-              editMenuItem
-            }
-
-            onDelete={
-              deleteMenuItem
-            }
-          />
-
-        )}
-
-
-      {/* =================================================
-                MANAGE CASHIERS
-            ================================================= */}
-
-      {view ===
-        'manageCashiers' && (
-
-          <ManageCashiers salesLog={salesLog} />
-
-        )}
-
-
-      {/* =================================================
-                POS
-            ================================================= */}
-
-      {view ===
-        'pos' && (
-
-          <POSScreen
-            menuItems={
-              menuItems
-            }
-
-            cashierId={cashierSession.id}
-            cashierUsername={cashierSession.username}
-            cashierShift={cashierSession.shift}
-
-            onCompleteSale={
-              recordSale
-            }
-          />
-
-        )}
+      {view === 'pos' && (
+        <POSScreen
+          menuItems={menuItems}
+          cashierId={cashierSession.id}
+          cashierUsername={cashierSession.username}
+          cashierShift={cashierSession.shift}
+          onCompleteSale={recordSale}
+          onAuditEvent={reportAuditEvent}
+        />
+      )}
 
     </div>
   )
 }
-
 
 export default App

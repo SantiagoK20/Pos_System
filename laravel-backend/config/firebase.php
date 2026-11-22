@@ -50,7 +50,7 @@ return [
              *
              */
 
-            'credentials' => storage_path('firebase-credentials.json'),
+            'credentials' => env('FIREBASE_CREDENTIALS', storage_path('firebase-credentials.json')),
             /*
              * ------------------------------------------------------------------------
              * Firebase Auth Component

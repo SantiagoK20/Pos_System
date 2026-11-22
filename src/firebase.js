@@ -1,6 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { browserSessionPersistence, getAuth, initializeAuth, inMemoryPersistence } from "firebase/auth";
 
 const firebaseConfig = {
     apiKey: "AIzaSyByBf4xJCXoi1zJi3vUGHnYr_f8cqTDqDk",
@@ -13,5 +12,22 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+let applicantAuth;
+
+export function getApplicantAuth() {
+    applicantAuth ??= initializeAuth(initializeApp(firebaseConfig, "administrator-applicant"), {
+        persistence: inMemoryPersistence,
+    });
+    return applicantAuth;
+}
+
+let kitchenAuth;
+
+export function getKitchenAuth() {
+    kitchenAuth ??= initializeAuth(initializeApp(firebaseConfig, "kitchen-display"), {
+        persistence: browserSessionPersistence,
+    });
+    return kitchenAuth;
+}

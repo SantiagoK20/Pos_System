@@ -35,7 +35,7 @@ function ManageMenu({ menuItems, onAdd, onEdit, onDelete }) {
             return
         }
         if (editingItem) {
-            onEdit(editingItem.id, { ...form, price: Number(form.price) })
+            onEdit(editingItem, { ...form, price: Number(form.price) })
         } else {
             onAdd({ ...form, price: Number(form.price) })
         }
@@ -44,7 +44,7 @@ function ManageMenu({ menuItems, onAdd, onEdit, onDelete }) {
 
     function handleDelete(item) {
         if (confirm(`Delete "${item.name}"?`)) {
-            onDelete(item.id)
+            onDelete(item)
         }
     }
 

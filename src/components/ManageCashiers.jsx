@@ -1,23 +1,15 @@
-import { getAuth } from 'firebase/auth'
 import { useCallback, useEffect, useState } from 'react'
 import CashierShiftReceipt from './CashierShiftReceipt'
+import { apiFetch, getApiUrl } from '../api'
+import { getFirebaseAuthorizationHeader } from '../audit'
 
 async function adminRequest(path, options = {}) {
-    const currentUser = getAuth().currentUser
-    if (!currentUser) {
-        throw new Error('You are not logged in as an administrator.')
-    }
-
-    const idToken = await currentUser.getIdToken()
-    const apiBaseUrl = window.location.protocol === 'file:'
-        ? 'http://127.0.0.1:8001'
-        : ''
-    const response = await fetch(`${apiBaseUrl}/api/${path}`, {
+    const response = await apiFetch(getApiUrl(path), {
         ...options,
         headers: {
             Accept: 'application/json',
             ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-            Authorization: 'Bearer ' + idToken,
+            Authorization: await getFirebaseAuthorizationHeader(),
             ...options.headers,
         },
     })
@@ -37,7 +29,7 @@ async function adminRequest(path, options = {}) {
     return result.data
 }
 
-function ManageCashiers({ salesLog = [] }) {
+function ManageCashiers({ salesLog = [], onAuditEvent }) {
 
     const [cashierUsername, setCashierUsername] = useState('')
     const [cashierPassword, setCashierPassword] = useState('')
@@ -163,25 +155,12 @@ function ManageCashiers({ salesLog = [] }) {
         setCreatingCashier(true)
 
         try {
-            const auth = getAuth()
-            const currentUser = auth.currentUser
-
-            if (!currentUser) {
-                throw new Error('You are not logged in as an administrator.')
-            }
-
-            const idToken = await currentUser.getIdToken()
-
-            const apiBaseUrl = import.meta.env.DEV
-                ? ''
-                : 'http://127.0.0.1:8001'
-
-		const response = await fetch(`${apiBaseUrl}/api/cashiers`, {
+            const response = await apiFetch(getApiUrl('cashiers'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
-                    'Authorization': `Bearer ${idToken}`,
+                    'Authorization': await getFirebaseAuthorizationHeader(),
                 },
                 body: JSON.stringify({
                     cashierUsername: cleanCashierUsername,
@@ -579,6 +558,10 @@ function ManageCashiers({ salesLog = [] }) {
                 shift={selectedShiftReceipt?.shift}
                 date={selectedDate}
                 sales={selectedShiftReceipt?.sales || []}
+                onPrinted={() => onAuditEvent?.('receipt_printed', {
+                    receiptType: 'cashier_shift',
+                    targetId: String(selectedShiftReceipt?.cashier?.databaseKey || ''),
+                })}
                 onClose={() => setSelectedShiftReceipt(null)}
             />
         </div>

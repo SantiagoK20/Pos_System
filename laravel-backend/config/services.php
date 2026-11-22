@@ -35,4 +35,19 @@ return [
         ],
     ],
 
+    'supabase' => [
+        'url' => env('SUPABASE_URL'),
+        'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
+        'anon_key' => env('SUPABASE_ANON_KEY'),
+    ],
+
+    'audit' => [
+        'hmac_key' => env('AUDIT_LOG_HMAC_KEY'),
+    ],
+
+    'pos_login' => [
+        'firebase_web_api_key' => env('FIREBASE_WEB_API_KEY'),
+        'cache_store' => env('POS_LOGIN_CACHE_STORE'),
+    ],
+
 ];

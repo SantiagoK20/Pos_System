@@ -1,33 +1,71 @@
 import { useState } from 'react'
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth'
-import { auth } from '../firebase'
+import { signInWithCustomToken, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import { auth, getApplicantAuth } from '../firebase'
+import { apiFetch, getApiUrl } from '../api'
+import { setTotpSession } from '../audit'
 
 import logo from '../assets/atecles-grill-logo.jpg'
 import background from '../assets/bg.jpg'
-
-async function getCashierEmail(name) {
-    const normalizedName = name.trim().toLowerCase()
-    const bytes = new TextEncoder().encode(normalizedName)
-    const digest = await crypto.subtle.digest('SHA-256', bytes)
-    const hash = Array.from(new Uint8Array(digest), (byte) =>
-        byte.toString(16).padStart(2, '0')
-    ).join('').slice(0, 56)
-
-    return `cashier-${hash}@cashier.atecles-pos.com`
-}
 
 function LoginScreen({ onLogin }) {
 
     const [identifier, setIdentifier] = useState('')
     const [password, setPassword]     = useState('')
     const [loading, setLoading]       = useState(false)
+    const [signInProgress, setSignInProgress] = useState('')
+    const [step, setStep] = useState('')
+    const [code, setCode] = useState('')
+    const [enrollment, setEnrollment] = useState(null)
+    const [approval, setApproval] = useState('')
+    const [verificationMessage, setVerificationMessage] = useState('')
+    const [canResend, setCanResend] = useState(false)
+    const [registering, setRegistering] = useState(false)
+    const [applicationStatus, setApplicationStatus] = useState('')
 
     // Detect role from what the user typed: admin email or cashier name.
     const isAdminInput = identifier.includes('@')
 
+    async function createAdminAccount() {
+        const registrationAuth = getApplicantAuth()
+        try {
+            const email = identifier.trim()
+            let response = await apiFetch(getApiUrl('pos/administrator-registration'), {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            })
+            let result = await response.json()
+            if (result.code === 'firebase_account_exists') {
+                const { user } = await signInWithEmailAndPassword(registrationAuth, email, password)
+                await user.reload()
+                const token = await user.getIdToken(true)
+                response = await apiFetch(getApiUrl('pos/administrator-request'), {
+                    method: 'POST',
+                    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+                })
+                result = await response.json()
+            }
+            setVerificationMessage(result.message || 'Could not create your account. Try again.')
+            if (response.ok) {
+                setRegistering(false)
+                setCanResend(result.data.status === 'pending' && !result.data.email_verified)
+                if (result.data.status !== 'approved') setApplicationStatus(result.data.status)
+            }
+        } catch {
+            setVerificationMessage('Could not submit your request. Check your email and password and try again.')
+        } finally {
+            if (registrationAuth.currentUser) await signOut(registrationAuth)
+        }
+    }
+
     async function handleSubmit(e) {
         e.preventDefault()
+        const resendVerification = e.nativeEvent.submitter?.value === 'resend-verification'
 
+        if (registering && !/^[^\s@]+@gmail\.com$/i.test(identifier.trim())) {
+            setVerificationMessage('Enter a Gmail address.')
+            return
+        }
         if (!identifier.trim() || !password) {
             alert(
                 isAdminInput
@@ -39,93 +77,145 @@ function LoginScreen({ onLogin }) {
 
         setLoading(true)
 
+        let signedInUser
         try {
-
-            let email
-
-            if (isAdminInput) {
-                // Admin — use the email directly
-                email = identifier.trim()
-            } else {
-                email = await getCashierEmail(identifier)
+            if (registering) {
+                await createAdminAccount()
+                return
             }
-
-            let userCredential
-            try {
-                userCredential = await signInWithEmailAndPassword(auth, email, password)
-            } catch (error) {
-                if (
-                    isAdminInput ||
-                    !['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found'].includes(error.code)
-                ) {
-                    throw error
+            setSignInProgress('Checking your sign-in…')
+            const response = await apiFetch(getApiUrl('pos/login'), {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    identifier: identifier.trim(),
+                    password,
+                    ...(resendVerification ? { resendVerification: true } : {}),
+                    ...(step === 'totp_required' ? { code } : {}),
+                    ...(step === 'totp_enrollment_required' ? { enroll: 'start', approval } : {}),
+                    ...(step === 'totp_enrolling' ? { enroll: 'finish', code, session: enrollment.session } : {}),
+                }),
+            })
+            const result = await response.json()
+            if (result.application_status === 'pending' || result.code === 'admin_request_pending' || result.code === 'admin_request_rejected') {
+                setApplicationStatus(result.code === 'admin_request_rejected' ? 'rejected' : 'pending')
+                setVerificationMessage(result.message)
+                setCanResend(result.code === 'email_verification_required')
+                return
+            }
+            if (resendVerification || result.code === 'email_verification_required') {
+                setStep('')
+                setCode('')
+                setApproval('')
+                setEnrollment(null)
+                const alreadyVerified = result.code === 'email_already_verified'
+                setVerificationMessage(alreadyVerified && applicationStatus
+                    ? 'Your email is verified. Select Check Status to continue.'
+                    : result.message || 'Verify your administrator email, then sign in again.')
+                setCanResend(!alreadyVerified)
+                return
+            }
+            if (response.ok && result.step) {
+                let setup = null
+                if (result.step === 'totp_enrolling') {
+                    const issuer = 'Atecles Grill POS'
+                    const label = encodeURIComponent(`${issuer}:Administrator`)
+                    const parameters = new URLSearchParams({
+                        secret: result.secret, issuer, algorithm: 'SHA1', digits: '6', period: String(result.period),
+                    })
+                    let qr = ''
+                    try {
+                        const { default: QRCode } = await import('qrcode')
+                        qr = await QRCode.toDataURL(`otpauth://totp/${label}?${parameters}`)
+                    } catch {
+                        // The manual setup key is still available.
+                    }
+                    setup = { secret: result.secret, session: result.session, qr }
                 }
-
-                // Older cashier accounts used their ID as the internal email prefix.
-                const legacyEmail = `${identifier.trim().toLowerCase()}@atecles-pos.local`
-                userCredential = await signInWithEmailAndPassword(auth, legacyEmail, password)
+                setStep(result.step === 'totp_enrolled' ? '' : result.step)
+                setCode('')
+                setApproval('')
+                setEnrollment(setup)
+                if (result.step === 'totp_enrolled') {
+                    setPassword('')
+                    alert('Authenticator enrolled. Sign in again with your password and a current code.')
+                }
+                return
+            }
+            if (!response.ok || !result.success) {
+                setCode('')
+                setApproval('')
+                alert(result.message || 'Sign-in is temporarily unavailable.')
+                return
             }
 
-            const user = userCredential.user
-
-            // Route based on email format
-            if (isAdminInput) {
-                console.log('Admin logged in:', user.email)
+            const { token, uid, role, totp } = result.data
+            if (role !== 'admin' && role !== 'cashier') {
+                throw new Error('Unexpected POS role.')
+            }
+            if (totp === true && role === 'admin') {
+                if (auth.currentUser) await signOut(auth)
+                setTotpSession(token)
                 onLogin('admin')
-            } else {
+                return
+            }
+            setSignInProgress('Opening your Firebase session…')
+            const { user } = await signInWithCustomToken(auth, token)
+            signedInUser = user
+            if (user.uid !== uid) {
+                throw new Error('Unexpected Firebase identity.')
+            }
+
+            if (role === 'admin') {
+                setSignInProgress('Verifying administrator access…')
                 const idToken = await user.getIdToken()
-                const apiBaseUrl = window.location.protocol === 'file:'
-                    ? 'http://127.0.0.1:8001'
-                    : ''
-                const response = await fetch(`${apiBaseUrl}/api/cashier-profile`, {
-                    headers: {
-                        Accept: 'application/json',
-                        Authorization: `Bearer ${idToken}`,
-                    },
+                const access = await apiFetch(getApiUrl('pos/email-verification'), {
+                    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
                 })
-                const result = await response.json()
-
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || 'Could not load cashier profile.')
+                if (access.status !== 204) {
+                    const rejection = await access.json()
+                    if (rejection.code !== 'email_verification_required') {
+                        throw new Error('Administrator access could not be confirmed.')
+                    }
+                    await signOut(auth)
+                    setVerificationMessage(rejection.message)
+                    setCanResend(true)
+                    return
                 }
-
-                const cashierUsername = result.data.cashierUsername || identifier.trim()
-                console.log('Cashier logged in:', cashierUsername)
-                onLogin(
-                    'cashier',
-                    result.data.cashierId || user.uid,
-                    cashierUsername,
-                    result.data.shift
-                )
+                onLogin('admin')
+                return
             }
 
-        } catch (error) {
+            let cashierProfile = result.data.cashierProfile
+            if (!cashierProfile) {
+                // Older API deployments return the profile through a separate endpoint.
+                const idToken = await user.getIdToken()
+                const profileResponse = await apiFetch(getApiUrl('cashier-profile'), {
+                    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+                })
+                const profile = await profileResponse.json()
+                if (!profileResponse.ok || !profile.success) {
+                    throw new Error('Cashier profile unavailable.')
+                }
+                cashierProfile = profile.data
+                // The legacy profile endpoint can update Firebase claims after sign-in.
+                await user.getIdToken(true)
+            }
 
-            console.error('Login error:', error)
-
-            if (error.code === undefined) {
+            onLogin(
+                'cashier',
+                cashierProfile.cashierId || user.uid,
+                cashierProfile.cashierUsername || identifier.trim(),
+                cashierProfile.shift,
+            )
+        } catch {
+            if (signedInUser && auth.currentUser === signedInUser) {
                 await signOut(auth)
-                alert(error.message)
-            } else if (
-                error.code === 'auth/invalid-credential' ||
-                error.code === 'auth/wrong-password'     ||
-                error.code === 'auth/user-not-found'
-            ) {
-                alert(
-                    isAdminInput
-                        ? 'Invalid email or password.'
-                        : 'Invalid cashier username or password.'
-                )
-            } else if (error.code === 'auth/too-many-requests') {
-                alert('Too many login attempts. Please try again later.')
-            } else if (error.code === 'auth/invalid-email') {
-                alert('Invalid email address.')
-            } else {
-                alert('Login failed.\n\n' + error.message)
             }
-
+            alert('Could not complete sign-in. Please try again.')
         } finally {
             setLoading(false)
+            setSignInProgress('')
         }
     }
 
@@ -162,7 +252,7 @@ function LoginScreen({ onLogin }) {
                     </p>
 
                     <div className="login-badge">
-                        POINT OF SALE SYSTEM
+                        POINT OF SALE
                     </div>
 
                 </div>
@@ -174,29 +264,53 @@ function LoginScreen({ onLogin }) {
             ============================================ */}
 
             <div className="login-right">
+                {applicationStatus ? (
+                    <form onSubmit={handleSubmit}>
+                        <h2>{applicationStatus === 'rejected' ? 'Account Not Approved' : canResend ? 'Verify Your Email' : 'Waiting for Admin Approval'}</h2>
+                        <p className="login-hint">{identifier}</p>
+                        <p role="status">{verificationMessage}</p>
+                        {applicationStatus === 'pending' && (
+                            <>
+                                <button type="submit" className="login-btn" disabled={loading}>{loading ? 'Checking…' : 'Check Status'}</button>
+                                {canResend && <button type="submit" value="resend-verification" className="login-btn" disabled={loading}>Resend verification email</button>}
+                            </>
+                        )}
+                        <button type="button" className="login-btn" disabled={loading} onClick={() => {
+                            setApplicationStatus('')
+                            setVerificationMessage('')
+                            setCanResend(false)
+                            setPassword('')
+                        }}>Back to Sign In</button>
+                    </form>
+                ) : (
+                <>
 
                 <h2>
-                    {isAdminInput ? 'Admin Login' : 'Staff Login'}
+                    {registering ? 'Create Admin Account' : isAdminInput ? 'Admin Login' : 'Staff Login'}
                 </h2>
 
-                <p className="login-hint">
+                {!registering && <p className="login-hint">
                     {isAdminInput
                         ? 'Signing in as Administrator'
                         : 'Enter your email or cashier username to sign in'}
-                </p>
+                </p>}
 
                 <form onSubmit={handleSubmit}>
 
                     <label>
-                        {isAdminInput ? 'ADMIN EMAIL' : 'EMAIL / CASHIER USERNAME'}
+                        {registering ? 'GMAIL ADDRESS' : isAdminInput ? 'ADMIN EMAIL' : 'EMAIL / CASHIER USERNAME'}
                     </label>
 
                     <input
-                        type="text"
-                        placeholder="Email or cashier username"
+                        type={registering ? 'email' : 'text'}
+                        placeholder={registering ? 'you@gmail.com' : 'Email or cashier username'}
                         value={identifier}
-                        onChange={(e) => setIdentifier(e.target.value)}
-                        disabled={loading}
+                        onChange={(e) => {
+                            setIdentifier(e.target.value)
+                            setVerificationMessage('')
+                            setCanResend(false)
+                        }}
+                        disabled={loading || Boolean(step)}
                         autoComplete="username"
                         autoFocus
                     />
@@ -208,25 +322,79 @@ function LoginScreen({ onLogin }) {
                         placeholder="Enter password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        disabled={loading}
-                        autoComplete="current-password"
+                        disabled={loading || Boolean(step)}
+                        autoComplete={registering ? 'new-password' : 'current-password'}
+                        minLength={registering ? 8 : undefined}
                     />
 
+                    {step === 'totp_enrollment_required' && (
+                        <label>
+                            ENROLLMENT APPROVAL FROM YOUR POS OPERATOR
+                            <input type="password" autoComplete="off" pattern="[0-9a-f]{64}" maxLength={64}
+                                required value={approval} disabled={loading}
+                                onChange={(event) => setApproval(event.target.value)} />
+                        </label>
+                    )}
+                    {step === 'totp_enrolling' && (
+                        <div>
+                            {enrollment.qr && <img src={enrollment.qr} alt="Scan with Google Authenticator" />}
+                            <p>Manual setup key: <strong>{enrollment.secret}</strong></p>
+                        </div>
+                    )}
+                    {(step === 'totp_required' || step === 'totp_enrolling') && (
+                        <label>
+                            AUTHENTICATOR CODE
+                            <input type="text" inputMode="numeric" autoComplete="one-time-code"
+                                pattern="[0-9]{6}" maxLength={6} required value={code}
+                                disabled={loading} onChange={(event) => setCode(event.target.value)} />
+                        </label>
+                    )}
                     <button
                         type="submit"
                         className="login-btn"
                         disabled={loading}
                     >
-                        {loading ? 'Signing In...' : 'Sign In →'}
+                        {registering ? (loading ? 'Registering…' : 'Register') : (loading ? (signInProgress || 'Signing in…') : 'Sign In →')}
                     </button>
 
+                    {(isAdminInput || registering) && verificationMessage && (
+                        <>
+                            <p role="status">{verificationMessage}</p>
+                            {!step && !registering && canResend && (
+                                <button type="submit" value="resend-verification" className="login-btn" disabled={loading}>
+                                    Resend verification email
+                                </button>
+                            )}
+                        </>
+                    )}
+
+                    {(isAdminInput || registering || !identifier.trim()) && !step && (
+                        <button type="button" className={registering ? 'login-btn' : 'login-register-link'} disabled={loading} onClick={() => {
+                            setRegistering(!registering)
+                            setVerificationMessage('')
+                            setCanResend(false)
+                            setPassword('')
+                        }}>{registering ? 'Back to Sign In' : 'Create Admin Account'}</button>
+                    )}
+
+                    {step && (
+                        <button type="button" className="login-btn" disabled={loading} onClick={() => {
+                            setStep('')
+                            setCode('')
+                            setApproval('')
+                            setPassword('')
+                            setEnrollment(null)
+                        }}>Cancel</button>
+                    )}
                 </form>
 
-                <p className="login-footer">
+                {!registering && <p className="login-footer">
                     {isAdminInput
                         ? 'Admin access is restricted to authorized personnel.'
                         : 'Having trouble? Contact your manager.'}
-                </p>
+                </p>}
+                </>
+                )}
 
             </div>
         </div>

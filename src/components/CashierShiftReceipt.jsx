@@ -1,4 +1,4 @@
-function CashierShiftReceipt({ cashier, shift, date, sales, onClose }) {
+function CashierShiftReceipt({ cashier, shift, date, sales, onClose, onPrinted }) {
     if (!cashier) return null
 
     const total = sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)
@@ -11,6 +11,7 @@ function CashierShiftReceipt({ cashier, shift, date, sales, onClose }) {
             } else {
                 window.print()
             }
+            onPrinted?.()
         } catch (error) {
             console.error('Failed to print shift receipt:', error)
             alert(`Failed to print shift receipt: ${error.message}`)

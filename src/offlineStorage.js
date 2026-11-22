@@ -1,3 +1,4 @@
+
 const PENDING_SYNC_KEY = 'pos_pending_sync_queue'
 
 function readStorage(key, fallback) {
@@ -22,13 +23,15 @@ function readStorage(key, fallback) {
 
 function writeStorage(key, value) {
   if (typeof window === 'undefined' || !window.localStorage) {
-    return
+    return false
   }
 
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
+    return true
   } catch (error) {
     console.warn(`Unable to write localStorage key: ${key}`, error)
+    return false
   }
 }
 
@@ -37,7 +40,7 @@ export function getOfflineSnapshot(key, fallback = []) {
 }
 
 export function setOfflineSnapshot(key, value) {
-  writeStorage(key, value)
+  return writeStorage(key, value)
 }
 
 export function getPendingSyncQueue() {
@@ -45,11 +48,19 @@ export function getPendingSyncQueue() {
 }
 
 export function savePendingSyncQueue(queue) {
-  writeStorage(PENDING_SYNC_KEY, queue)
+  return writeStorage(PENDING_SYNC_KEY, queue)
 }
 
 export function enqueueSyncAction(action) {
   const queue = getPendingSyncQueue()
+  const saleId = action.payload?.clientSaleId ?? action.payload?.id
+  if (action.type === 'sale' && saleId != null) {
+    const existing = queue.find((entry) =>
+      entry.type === 'sale' &&
+      (entry.payload?.clientSaleId ?? entry.payload?.id) === saleId
+    )
+    if (existing) return existing
+  }
 
   const queuedAction = {
     id: action.id ?? `sync-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -58,7 +69,10 @@ export function enqueueSyncAction(action) {
   }
 
   const nextQueue = [...queue, queuedAction]
-  savePendingSyncQueue(nextQueue)
+
+  if (!savePendingSyncQueue(nextQueue)) {
+    return null
+  }
 
   return queuedAction
 }
